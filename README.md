@@ -85,6 +85,7 @@ Vision was loaded during measurement, but the agent tasks were text-only. MTP ra
 - [GLM Maya-M settings, build and restoration](models/glm5.3-flash-maya/README.md)
 - [Hardware and physical GPU/CUDA mapping](docs/hardware.md)
 - [Persistent services and manual model switching](docs/services.md)
+- [Upstream community PR and hardware report](docs/upstream-contributions.md)
 - [Agent task definitions, scoring and reproduction](benchmarks/agent-comparison/2026-10-16/README.md)
 - [Earlier Qwen prefill/decode throughput experiments](benchmarks/throughput/README.md)
 - [Upstream sources and licenses](THIRD_PARTY_NOTICES.md)
