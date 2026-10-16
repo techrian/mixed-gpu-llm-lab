@@ -1,0 +1,47 @@
+import json
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+label = sys.argv[1]
+base = "http://127.0.0.1:8080"
+paragraph = (
+    "Record 1842: The archive lists a cedar cabinet, a brass compass, a blue notebook, "
+    "and a small glass bottle. The clerk checked each item, copied its condition, "
+    "and placed the record in the west wing ledger. No item was moved during the inspection. "
+)
+context = f"Benchmark {label}.\n" + paragraph * 1100
+body = {
+    "model": "glm-5.3-flash",
+    "messages": [{"role": "user", "content": context +
+        "\nContinue with at least 512 concise numbered observations. Do not summarize or stop early."}],
+    "max_tokens": 512,
+    "stream": False,
+}
+# Omit sampling fields so the same configured defaults as the Qwen tests apply.
+req = urllib.request.Request(base + "/v1/chat/completions", data=json.dumps(body).encode(),
+                             headers={"Content-Type": "application/json"})
+t0 = time.time()
+with urllib.request.urlopen(req, timeout=1200) as r:
+    response = json.load(r)
+elapsed = time.time() - t0
+with urllib.request.urlopen(base + "/metrics", timeout=30) as r:
+    metrics = json.load(r)
+last = metrics["requests"][0]
+result = {
+    "label": label,
+    "model": "Maya-M IQ2_S",
+    "prefill": 6144,
+    "sampling_request": "omitted; configured defaults apply",
+    "sampling_defaults": {"temperature": 1.0, "top_p": 0.95, "top_k": 20, "min_p": 0.0},
+    "wall_s": round(elapsed, 3),
+    "response_usage": response.get("usage"),
+    "response_finish": response.get("choices", [{}])[0].get("finish_reason"),
+    "metrics": last,
+    "engine": {k: metrics.get("engine", {}).get(k) for k in
+               ("max_context", "kv", "expert_slots", "vram_slots", "ram_slots", "vram_gb", "ram_gb", "vram_free_mib")},
+}
+out = Path(__file__).parent / f"{label}.json"
+out.write_text(json.dumps(result, indent=2) + "\n")
+print(json.dumps(result, indent=2))

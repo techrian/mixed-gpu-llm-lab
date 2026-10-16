@@ -123,6 +123,80 @@ GLM ran before Qwen on one host; model order was not counterbalanced. These are 
 Both used API defaults temperature 1.0, top_p 0.95, top_k 20 and min_p 0.0. Reasoning settings and observed token use are detailed above.
 Vision was loaded during measurement, but the agent tasks were text-only. MTP ran on the last V100 in both recorded layouts.
 
+## Why these prefill values and GPU order were chosen
+
+The configurations came from earlier throughput trials on this PC. **Prefill is the prompt-processing chunk size; the context ceiling remains 262144.**
+The trials used a long synthetic prompt, 512 generated tokens and zero reported prompt-cache reuse. They measure prompt reading, decoding and full request time.
+The separate 24-task agent benchmark above measured task completion using the retained configurations.
+
+### Qwen: keep prefill 6144 after trying 512 through 8192
+
+Each initial row below contains two measured requests with 61679 prompt tokens. GPU order was `[2,0,1,3]` throughout these saved Qwen comparisons.
+The sequence was 512 → 1024 → 2048 → 4096 → 8192 → 6144; the table is sorted by chunk size.
+
+| Prefill | VRAM reserve/GPU | Mean prompt tok/s | Mean decode tok/s | Mean total request time |
+| ---: | ---: | ---: | ---: | ---: |
+| 512 | 700 MiB | 892.98 | 71.30 | 76.297 s |
+| 1024 | 700 MiB | 1258.12 | 71.45 | 56.245 s |
+| 2048 | 256 MiB | 1663.32 | 72.60 | 44.181 s |
+| 4096 | 256 MiB | 2066.34 | 73.65 | 36.845 s |
+| **6144** | **256 MiB** | **2202.38** | 70.75 | **35.293 s** |
+| 8192 | 256 MiB | 1969.25 | 69.75 | 38.707 s |
+
+**6144 had the shortest mean request time in this initial sweep; 8192 completed but was slower.**
+4096 had the higher mean decode rate, so the choice favored long-prompt request time rather than decode rate alone.
+The 1024-to-2048 step also reduced the VRAM reserve; its improvement cannot be assigned to prefill alone.
+All initial rows requested temperature 0.7. Later repeats with the final sampling defaults and swap blocked retained 6144;
+the last three requests averaged **2212.05 prompt tok/s, 69.70 decode tok/s and 35.280 s**.
+Those later sampling/swap groups are documented separately in the [22-request Qwen history](benchmarks/throughput/README.md#qwen-prefill-and-later-repeat-results).
+
+### GLM Maya-M: reduce prefill from 6144 to 2048
+
+Two requests per value, context 262144, FP16 KV and 59434–59438 prompt tokens. This comparison used the earlier GPU order `[0,2,3,1]`.
+
+| Prefill | Mean prompt tok/s | Mean decode tok/s | Mean total request time |
+| ---: | ---: | ---: | ---: |
+| **2048** | **911.05** | 40.45 | **78.108 s** |
+| 4096 | 881.60 | 40.30 | 80.312 s |
+| 6144 | 821.70 | 38.85 | 85.993 s |
+| 8192 | 744.15 | 39.10 | 93.361 s |
+
+**2048 had the highest mean prompt throughput and shortest mean request time**, so it was retained.
+8192 fit and completed, but ran slowest. Reported VRAM expert slots were 10180 at 2048/4096/6144 and 10178 at 8192;
+the observed gain was not accompanied by a large increase in VRAM slots.
+The sequence first measured 6144, then 4096/8192, then added 2048, reusing earlier measurements.
+See the [raw requests and comparison details](benchmarks/throughput/glm-maya-m-20261016/README.md#2-compare-prefill-4096-6144-and-8192-then-add-2048).
+
+### GLM GPU-order and MTP placement trials
+
+Physical indices: **0 = RTX 3090, 1 = RTX 3060, 2 = vision V100, 3 = the other V100**.
+All four rows used prefill 2048, context 262144, 59437 prompt tokens and 512 generated tokens.
+
+| Physical GPU order | Last GPU, with output head/MTP | Runs | Mean prompt tok/s | Mean decode tok/s | Mean total request time |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `[0,2,3,1]` | RTX 3060 | 2 | 911.05 | 40.45 | 78.108 s |
+| `[0,2,1,3]` | V100 | 2 | **955.40** | 44.65 | **73.925 s** |
+| **`[2,0,1,3]` — retained** | **V100** | **3** | 937.97 | **45.33** | 74.979 s |
+| `[2,3,1,0]` — reverted | RTX 3090 | 3 | 945.90 | 39.87 | 76.106 s |
+
+- Moving the RTX 3060 from the final stage to the third stage, with MTP on the final V100, increased mean decode rate about 10.4% and reduced mean request time about 5.4% in these samples.
+- Putting the vision V100 first, `[2,0,1,3]`, was retained using **mean decode rate** as the selection criterion: about 1.5% higher than `[0,2,1,3]`. Its mean request time was about 1.4% longer. The retained order did not minimize total time in this table.
+- Putting the RTX 3090 last with MTP, `[2,3,1,0]`, reduced mean decode rate about 12.1% versus the retained order, so it was reverted. This also changed base-layer distribution and expert allocation; it did not isolate MTP execution speed.
+
+These GPU-order measurements are for **GLM Maya-M**. The published Qwen throughput records use the fixed `[2,0,1,3]` order.
+The [complete GLM tuning history](benchmarks/throughput/glm-maya-m-20261016/README.md) includes 18 unique requests, reused-baseline provenance,
+historical configs, observed layer maps, the context-ceiling trials, a summary-construction error and the rollback decision.
+
+### Hardware and experiment limits
+
+The PCIe links were **Gen4 x16 for the RTX 3090, Gen4 x1 for the RTX 3060, and Gen3 x4 for each V100**.
+The vision encoder occupied memory on physical GPU 2. These settings reflect this topology and the tested model/runtime/workload.
+The trials did not isolate PCIe link width or prove that a particular card alone caused a bottleneck.
+
+Samples contain only two or three sequential requests, with historical baselines reused and no counterbalancing of order or cache warmth.
+The GLM prefill sweep preceded its final GPU-order selection; all prefill values were not tested again for every order.
+The agent suite was also not repeated for each tuning candidate. Different hardware, prompt/output lengths or latency priorities can change the preferred settings.
+
 ## Configuration and reproduction
 
 - [Qwen settings, build and restoration](models/qwen3.8-flash-next/README.md)
@@ -131,7 +205,7 @@ Vision was loaded during measurement, but the agent tasks were text-only. MTP ra
 - [Persistent services and manual model switching](docs/services.md)
 - [Upstream community PR and hardware report](docs/upstream-contributions.md)
 - [Agent task definitions, scoring and reproduction](benchmarks/agent-comparison/2026-10-16/README.md)
-- [Earlier Qwen prefill/decode throughput experiments](benchmarks/throughput/README.md)
+- [Prefill, GPU-order and MTP tuning history](benchmarks/throughput/README.md)
 - [Upstream sources and licenses](THIRD_PARTY_NOTICES.md)
 
 This repository publishes configurations, helper scripts, measurements and reproducible task fixtures.

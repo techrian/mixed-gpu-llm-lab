@@ -1,0 +1,103 @@
+import json, time, subprocess, urllib.request, sys
+from pathlib import Path
+
+out = Path('/home/USER/Maya-data/benchmarks/maya-m-gpu-order-ab-prefill2048-context262144-20261016')
+config_path = Path('/home/USER/project-maya/maya-maya-m.json')
+unit = 'project-maya-maya-m.service'
+base = 'http://127.0.0.1:8080'
+orig = json.loads(config_path.read_text())
+orig_gpu = orig.get('gpu')
+args = orig.get('args', [])
+if orig_gpu != [0, 2, 3, 1] or args[args.index('--prefill') + 1] != '2048':
+    raise SystemExit(f'Unexpected baseline config: gpu={orig_gpu}, prefill={args[args.index("--prefill")+1]}')
+(out/'config.before.json').write_text(json.dumps(orig, indent=2) + '\n')
+
+paragraph = (
+    'Record 1842: The archive lists a cedar cabinet, a brass compass, a blue notebook, '
+    'and a small glass bottle. The clerk checked each item, copied its condition, '
+    'and placed the record in the west wing ledger. No item was moved during the inspection. '
+)
+
+def restart_wait(gpu_order, label):
+    cp = subprocess.run(['systemctl', '--user', 'restart', unit], text=True, capture_output=True, timeout=300)
+    if cp.returncode:
+        raise RuntimeError(f'{label} restart failed: {cp.stderr.strip()}')
+    deadline = time.time() + 240
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(base + '/health', timeout=5) as r: health = json.load(r)
+            with urllib.request.urlopen(base + '/metrics', timeout=5) as r: metrics = json.load(r)
+            proc = subprocess.run(['ps', '-eo', 'args'], text=True, capture_output=True).stdout
+            engine = metrics.get('engine') or {}
+            if health.get('status') == 'ok' and engine.get('max_context') == 262144 and '--prefill 2048' in proc:
+                journal = subprocess.run(['journalctl','--user','-u',unit,'-n','120','--no-pager','-o','cat'],text=True,capture_output=True).stdout
+                (out/f'startup-{label}.txt').write_text(journal)
+                print(json.dumps({'ready':label,'configured_gpu_order':gpu_order,'max_context':engine.get('max_context'),
+                                  'expert_slots':engine.get('expert_slots'),'vram_slots':engine.get('vram_slots'),
+                                  'ram_slots':engine.get('ram_slots'),'mtp':engine.get('mtp'),'kv':engine.get('kv'),
+                                  'journal_order_seen':f'[{", ".join(map(str,gpu_order))}]' in journal},ensure_ascii=False),flush=True)
+                return
+        except Exception:
+            pass
+        time.sleep(2)
+    raise TimeoutError(f'{label} server did not become ready')
+
+def request(label):
+    context = f'Benchmark {label}.\n' + paragraph * 1100
+    body = {'model':'glm-5.3-flash','messages':[{'role':'user','content':context+'\nContinue with at least 512 concise numbered observations. Do not summarize or stop early.'}],
+            'max_tokens':512,'stream':False}
+    req = urllib.request.Request(base+'/v1/chat/completions',data=json.dumps(body).encode(),headers={'Content-Type':'application/json'})
+    t0=time.time()
+    with urllib.request.urlopen(req,timeout=1200) as r: response=json.load(r)
+    wall=time.time()-t0
+    with urllib.request.urlopen(base+'/metrics',timeout=30) as r: metrics=json.load(r)
+    last=metrics['requests'][0]
+    result={'label':label,'model':'Maya-M IQ2_S','gpu_order':[0,2,1,3],'prefill':2048,'context':262144,'kv':'fp16',
+            'sampling_request':'omitted; configured defaults apply','sampling_defaults':{'temperature':1.0,'top_p':0.95,'top_k':20,'min_p':0.0},
+            'wall_s':round(wall,3),'response_usage':response.get('usage'),'response_finish':response.get('choices',[{}])[0].get('finish_reason'),
+            'metrics':last,'engine':{k:metrics.get('engine',{}).get(k) for k in ('max_context','expert_slots','vram_slots','ram_slots','vram_gb','ram_gb','mtp','kv_gb')}}
+    (out/f'{label}.json').write_text(json.dumps(result,indent=2)+'\n')
+    print(json.dumps({'label':label,'wall_s':result['wall_s'],'prompt_tokens':last.get('prompt_tokens'),
+                      'prefill_tok_s':last.get('prefill_tok_s'),'decode_tok_s':last.get('decode_tok_s'),
+                      'output_tokens':last.get('output_tokens'),'reused':last.get('reused'),'finish':result['response_finish'],
+                      'engine':result['engine']},ensure_ascii=False),flush=True)
+
+error=None
+try:
+    cfg=json.loads(config_path.read_text()); cfg['gpu']=[0,2,1,3]
+    config_path.write_text(json.dumps(cfg,indent=1)+'\n')
+    print('TEMP_ORDER_SET [0, 2, 1, 3]',flush=True)
+    restart_wait([0,2,1,3],'reordered')
+    request('O321-R1')
+    request('O321-R2')
+except Exception as e:
+    error=repr(e)
+    (out/'failure.txt').write_text(error+'\n')
+    print('TEST_FAILURE '+error,flush=True)
+finally:
+    config_path.write_text(json.dumps(orig,indent=1)+'\n')
+    print('RESTORING_ORIGINAL_ORDER [0, 2, 3, 1]',flush=True)
+    try:
+        restart_wait(orig_gpu,'restored')
+    except Exception as e:
+        error=error or ('restore failed: '+repr(e))
+        (out/'restore-failure.txt').write_text(error+'\n')
+        print('RESTORE_FAILURE '+repr(e),flush=True)
+if error:
+    sys.exit(1)
+
+baseline_dir=Path('/home/USER/Maya-data/benchmarks/maya-m-prefill-compare-2048-4096-6144-8192-context262144-20261016')
+summary={'model':'Maya-M IQ2_S','prefill':2048,'context':262144,'kv':'fp16','output_tokens':512,'runs':{}}
+for key, files in {'current_order':[baseline_dir/'P2048-R1.json',baseline_dir/'P2048-R2.json'],
+                   '3060_third_v100_fourth':[out/'O321-R1.json',out/'O321-R2.json']}.items():
+    runs=[]
+    for f in files:
+        d=json.loads(f.read_text()); m=d.get('metrics',{})
+        runs.append({'label':d.get('label',f.stem),'prompt_tokens':m.get('prompt_tokens'),
+                     'prefill_tok_s':m.get('prefill_tok_s'),'decode_tok_s':m.get('decode_tok_s'),
+                     'wall_s':d.get('wall_s',m.get('duration_s')),'output_tokens':m.get('output_tokens'),'reused':m.get('reused')})
+    summary['runs'][key]={'runs':runs,'mean_prefill_tok_s':round(sum(x['prefill_tok_s'] for x in runs)/len(runs),1),
+                          'mean_decode_tok_s':round(sum(x['decode_tok_s'] for x in runs)/len(runs),1),
+                          'mean_wall_s':round(sum(x['wall_s'] for x in runs)/len(runs),3)}
+(out/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+print('COMPARISON '+json.dumps(summary,ensure_ascii=False),flush=True)

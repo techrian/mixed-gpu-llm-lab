@@ -1,0 +1,144 @@
+import json, time, subprocess, urllib.request, sys
+from pathlib import Path
+
+out = Path('/home/USER/Maya-data/benchmarks/maya-m-mtp-on-3090-20261016-123028')
+config_path = Path('/home/USER/project-maya/maya-maya-m.json')
+unit = 'project-maya-maya-m.service'
+base = 'http://127.0.0.1:8080'
+baseline_order = [2, 0, 1, 3]
+candidate_order = [2, 3, 1, 0]
+orig = json.loads(config_path.read_text())
+args = orig.get('args', [])
+if orig.get('gpu') != baseline_order:
+    raise SystemExit(f'Expected current order {baseline_order}, got {orig.get("gpu")}')
+if args[args.index('--prefill') + 1] != '2048' or args[args.index('--max-context') + 1] != '262144':
+    raise SystemExit('Current prefill/context differ from the established benchmark settings')
+(out/'config-before.json').write_text(json.dumps(orig, indent=2) + '\n')
+
+baseline_dir = Path('/home/USER/Maya-data/benchmarks/maya-m-gpu-order-v100first-prefill2048-context262144-20261016')
+baseline_files = [baseline_dir/f'V021-R{i}.json' for i in range(1,4)]
+baseline_runs = [json.loads(p.read_text()) for p in baseline_files]
+baseline_mean_decode = sum(d['metrics']['decode_tok_s'] for d in baseline_runs)/len(baseline_runs)
+
+baseline_mean_prefill = sum(d['metrics']['prefill_tok_s'] for d in baseline_runs)/len(baseline_runs)
+baseline_mean_wall = sum(d['wall_s'] for d in baseline_runs)/len(baseline_runs)
+
+paragraph = (
+    'Record 1842: The archive lists a cedar cabinet, a brass compass, a blue notebook, '
+    'and a small glass bottle. The clerk checked each item, copied its condition, '
+    'and placed the record in the west wing ledger. No item was moved during the inspection. '
+)
+
+def get_json(path, timeout=5):
+    with urllib.request.urlopen(base + path, timeout=timeout) as r:
+        return json.load(r)
+
+def restart_wait(gpu_order, label):
+    print(f'RESTART_BEGIN {label} order={gpu_order}', flush=True)
+    cp = subprocess.run(['systemctl', '--user', 'restart', unit], text=True, capture_output=True, timeout=420)
+    if cp.returncode:
+        raise RuntimeError(f'{label} restart failed: {cp.stderr.strip()}')
+    deadline = time.time() + 300
+    last_note = 0
+    while time.time() < deadline:
+        try:
+            health = get_json('/health')
+            metrics = get_json('/metrics')
+            engine = metrics.get('engine') or {}
+            mapping = metrics.get('gpu_map') or []
+            order_seen = [x.get('index') for x in mapping]
+            if health.get('status') == 'ok' and engine.get('max_context') == 262144 and order_seen == gpu_order:
+                journal = subprocess.run(['journalctl','--user','-u',unit,'-n','180','--no-pager','-o','cat'],text=True,capture_output=True).stdout
+                (out/f'startup-{label}.txt').write_text(journal)
+                print(json.dumps({'ready':label,'gpu_order':order_seen,'max_context':engine.get('max_context'),
+                    'expert_slots':engine.get('expert_slots'),'vram_slots':engine.get('vram_slots'),
+                    'ram_slots':engine.get('ram_slots'),'mtp':engine.get('mtp'),'kv':engine.get('kv'),
+                    'cpu_threads':engine.get('cpu_threads'),'vram_gb':engine.get('vram_gb')},ensure_ascii=False),flush=True)
+                (out/f'metrics-{label}.json').write_text(json.dumps(metrics,indent=2)+'\n')
+                return metrics
+        except Exception:
+            pass
+        if time.time() - last_note >= 30:
+            print(f'WAITING_FOR_READY {label}', flush=True)
+            last_note = time.time()
+        time.sleep(2)
+    raise TimeoutError(f'{label} server did not become ready in expected GPU order')
+
+def request(label):
+    context = f'Benchmark {label}.\n' + paragraph * 1100
+    body = {'model':'glm-5.3-flash','messages':[{'role':'user','content':context+'\nContinue with at least 512 concise numbered observations. Do not summarize or stop early.'}],
+            'max_tokens':512,'stream':False}
+    req = urllib.request.Request(base+'/v1/chat/completions',data=json.dumps(body).encode(),headers={'Content-Type':'application/json'})
+    engine_log=Path('/home/USER/project-maya/maya-maya-m.log')
+    log_offset=engine_log.stat().st_size
+    print('REQUEST_BEGIN '+label,flush=True)
+    t0=time.time()
+    with urllib.request.urlopen(req,timeout=1200) as r: response=json.load(r)
+    wall=time.time()-t0
+    metrics=get_json('/metrics',30)
+    last=metrics['requests'][0]
+    with engine_log.open('rb') as f:
+        f.seek(log_offset)
+        (out/f'{label}.log').write_bytes(f.read())
+    if last.get('output_tokens') != 512 or last.get('reused') != 0:
+        raise RuntimeError(f'Unexpected benchmark output/cache reuse: {last}')
+    result={'label':label,'model':'Maya-M IQ2_S','gpu_order':candidate_order,'prefill':2048,'context':262144,'kv':'fp16',
+            'sampling_request':'omitted; configured defaults apply','sampling_defaults':{'temperature':1.0,'top_p':0.95,'top_k':20,'min_p':0.0},
+            'wall_s':round(wall,3),'response_usage':response.get('usage'),'response_finish':response.get('choices',[{}])[0].get('finish_reason'),
+            'metrics':last,'engine':{k:metrics.get('engine',{}).get(k) for k in ('max_context','expert_slots','vram_slots','ram_slots','vram_gb','ram_gb','mtp','kv_gb','cpu_threads')},
+            'gpu_map':metrics.get('gpu_map')}
+    (out/f'{label}.json').write_text(json.dumps(result,indent=2)+'\n')
+    print(json.dumps({'label':label,'wall_s':result['wall_s'],'prompt_tokens':last.get('prompt_tokens'),
+        'prefill_tok_s':last.get('prefill_tok_s'),'decode_tok_s':last.get('decode_tok_s'),
+        'output_tokens':last.get('output_tokens'),'reused':last.get('reused'),'finish':result['response_finish']},ensure_ascii=False),flush=True)
+    return result
+
+try:
+    cfg=json.loads(config_path.read_text()); cfg['gpu']=candidate_order
+    config_path.write_text(json.dumps(cfg,indent=1)+'\n')
+    print(f'CANDIDATE_ORDER_SET {candidate_order}',flush=True)
+    restart_wait(candidate_order,'candidate')
+    runs=[request(f'L309-R{i}') for i in range(1,4)]
+    means={k:sum(r['metrics'][k] if k != 'wall_s' else r[k] for r in runs)/len(runs)
+           for k in ('prefill_tok_s','decode_tok_s','wall_s')}
+    keep = means['decode_tok_s'] > baseline_mean_decode
+    final_order = candidate_order if keep else baseline_order
+    summary={'model':'Maya-M IQ2_S','prefill':2048,'context':262144,'kv':'fp16','output_tokens':512,
+      'decision_metric':'mean decode_tok_s; keep candidate only if higher than the current-order baseline',
+      'baseline_order':baseline_order,'candidate_order':candidate_order,'final_order':final_order,
+      'baseline':{'runs':[{'label':d['label'],'prompt_tokens':d['metrics']['prompt_tokens'],'prefill_tok_s':d['metrics']['prefill_tok_s'],
+          'decode_tok_s':d['metrics']['decode_tok_s'],'wall_s':d['wall_s']} for d in baseline_runs],
+          'mean_prefill_tok_s':sum(d['metrics']['prefill_tok_s'] for d in baseline_runs)/len(baseline_runs),
+          'mean_decode_tok_s':baseline_mean_decode,'mean_wall_s':sum(d['wall_s'] for d in baseline_runs)/len(baseline_runs)},
+      'candidate':{'runs':[{'label':r['label'],'prompt_tokens':r['metrics'].get('prompt_tokens'),'prefill_tok_s':r['metrics'].get('prefill_tok_s'),
+          'decode_tok_s':r['metrics'].get('decode_tok_s'),'wall_s':r['wall_s']} for r in runs],
+          'mean_prefill_tok_s':means['prefill_tok_s'],'mean_decode_tok_s':means['decode_tok_s'],'mean_wall_s':means['wall_s']},
+      'mean_change_percent':{'prefill_tok_s':(means['prefill_tok_s']/baseline_mean_prefill-1)*100,
+          'decode_tok_s':(means['decode_tok_s']/baseline_mean_decode-1)*100,
+          'wall_s':(means['wall_s']/baseline_mean_wall-1)*100},
+      'decision':'keep candidate' if keep else 'restore baseline'}
+    (out/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+    print('DECISION '+json.dumps({'decision':summary['decision'],'baseline_mean_decode_tok_s':round(baseline_mean_decode,3),
+        'candidate_mean_decode_tok_s':round(means['decode_tok_s'],3),'candidate_mean_prefill_tok_s':round(means['prefill_tok_s'],3),
+        'candidate_mean_wall_s':round(means['wall_s'],3),'final_order':final_order},ensure_ascii=False),flush=True)
+    if not keep:
+        config_path.write_text(json.dumps(orig,indent=1)+'\n')
+        print(f'ROLLBACK_ORDER_SET {baseline_order}',flush=True)
+        restart_wait(baseline_order,'rollback')
+    else:
+        # The ready candidate service is already serving; keep its config/order in place.
+        final_metrics=get_json('/metrics')
+        if [x.get('index') for x in (final_metrics.get('gpu_map') or [])] != candidate_order:
+            raise RuntimeError('candidate order changed before final verification')
+    print('FINAL_STATE_OK '+json.dumps({'gpu_order':final_order,'health':get_json('/health').get('status')},ensure_ascii=False),flush=True)
+except Exception as e:
+    error=repr(e)
+    (out/'failure.txt').write_text(error+'\n')
+    print('TEST_FAILURE '+error,flush=True)
+    config_path.write_text(json.dumps(orig,indent=1)+'\n')
+    try:
+        restart_wait(baseline_order,'failure-rollback')
+    except Exception as restore_error:
+        (out/'rollback-failure.txt').write_text(repr(restore_error)+'\n')
+        print('ROLLBACK_FAILURE '+repr(restore_error),flush=True)
+    sys.exit(1)

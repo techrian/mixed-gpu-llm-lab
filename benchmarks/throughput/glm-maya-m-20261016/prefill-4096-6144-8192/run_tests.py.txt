@@ -1,0 +1,93 @@
+import json, time, subprocess, urllib.request, urllib.error, sys
+from pathlib import Path
+
+root = Path('/home/USER/Maya-data/benchmarks/maya-m-prefill-compare-4096-6144-8192-context262144-20261016')
+config_path = Path('/home/USER/project-maya/maya-maya-m.json')
+unit = 'project-maya-maya-m.service'
+base = 'http://127.0.0.1:8080'
+original = json.loads(config_path.read_text())
+(root / 'config.before.json').write_text(json.dumps(original, indent=2) + '\n')
+
+paragraph = (
+    'Record 1842: The archive lists a cedar cabinet, a brass compass, a blue notebook, '
+    'and a small glass bottle. The clerk checked each item, copied its condition, '
+    'and placed the record in the west wing ledger. No item was moved during the inspection. '
+)
+
+def set_prefill(value):
+    cfg = json.loads(config_path.read_text())
+    args = cfg['args']
+    idx = args.index('--prefill')
+    args[idx + 1] = str(value)
+    config_path.write_text(json.dumps(cfg, indent=1) + '\n')
+
+def restart_and_wait(value):
+    set_prefill(value)
+    print(f'RESTART prefill={value}', flush=True)
+    cp = subprocess.run(['systemctl', '--user', 'restart', unit], text=True, capture_output=True, timeout=300)
+    if cp.returncode:
+        raise RuntimeError(f'systemctl restart failed: {cp.stderr.strip()}')
+    deadline = time.time() + 240
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(base + '/health', timeout=5) as r:
+                health = json.load(r)
+            with urllib.request.urlopen(base + '/metrics', timeout=5) as r:
+                metrics = json.load(r)
+            proc = subprocess.run(['ps', '-eo', 'args'], text=True, capture_output=True).stdout
+            expected = f'--prefill {value}'
+            if health.get('status') == 'ok' and metrics.get('engine') and expected in proc:
+                engine = metrics['engine']
+                print(f'READY prefill={value} context={engine.get("max_context")} expert_slots={engine.get("expert_slots")} kv={engine.get("kv")}', flush=True)
+                return
+        except Exception:
+            pass
+        time.sleep(2)
+    raise TimeoutError(f'prefill={value} server did not become ready')
+
+def request(label, prefill):
+    context = f'Benchmark {label}.\n' + paragraph * 1100
+    body = {
+        'model': 'glm-5.3-flash',
+        'messages': [{'role': 'user', 'content': context + '\nContinue with at least 512 concise numbered observations. Do not summarize or stop early.'}],
+        'max_tokens': 512,
+        'stream': False,
+    }
+    req = urllib.request.Request(base + '/v1/chat/completions', data=json.dumps(body).encode(), headers={'Content-Type': 'application/json'})
+    t0 = time.time()
+    with urllib.request.urlopen(req, timeout=1200) as r:
+        response = json.load(r)
+    wall = time.time() - t0
+    with urllib.request.urlopen(base + '/metrics', timeout=30) as r:
+        metrics = json.load(r)
+    last = metrics['requests'][0]
+    result = {
+        'label': label, 'model': 'Maya-M IQ2_S', 'prefill': prefill,
+        'context': 262144, 'kv': metrics.get('engine', {}).get('kv'),
+        'sampling_request': 'omitted; configured defaults apply',
+        'sampling_defaults': {'temperature': 1.0, 'top_p': 0.95, 'top_k': 20, 'min_p': 0.0},
+        'wall_s': round(wall, 3), 'response_usage': response.get('usage'),
+        'response_finish': response.get('choices', [{}])[0].get('finish_reason'),
+        'metrics': last,
+        'engine': {k: metrics.get('engine', {}).get(k) for k in ('max_context','expert_slots','vram_slots','ram_slots','vram_gb','ram_gb','mtp','kv_gb')},
+    }
+    (root / f'{label}.json').write_text(json.dumps(result, indent=2) + '\n')
+    print(json.dumps({'label': label, 'prefill': prefill, 'wall_s': result['wall_s'], 'prompt_tokens': last.get('prompt_tokens'), 'prompt_s': round((last.get('prompt_ms') or 0)/1000, 3), 'prefill_tok_s': last.get('prefill_tok_s'), 'decode_tok_s': last.get('decode_tok_s'), 'output_tokens': last.get('output_tokens'), 'reused': last.get('reused'), 'finish': result['response_finish']}, ensure_ascii=False), flush=True)
+
+try:
+    for value in (4096, 8192):
+        restart_and_wait(value)
+        for n in (1, 2):
+            request(f'P{value}-R{n}', value)
+except Exception as exc:
+    (root / 'failure.txt').write_text(repr(exc) + '\n')
+    print(f'FAILURE: {exc!r}', flush=True)
+    # The failure must never leave the service on a non-working prefill value.
+    try:
+        set_prefill(6144)
+        subprocess.run(['systemctl', '--user', 'restart', unit], text=True, capture_output=True, timeout=300, check=True)
+        print('RECOVERY_RESTART_6144 issued', flush=True)
+    except Exception as recovery_exc:
+        print(f'RECOVERY_FAILURE: {recovery_exc!r}', flush=True)
+    sys.exit(1)
+print('ALL_REQUESTS_FINISHED', flush=True)

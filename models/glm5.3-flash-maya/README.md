@@ -26,6 +26,20 @@ Slot totals contain allocator slack and MTP allocation. Dividing slots by model 
 The [runtime snapshot](snapshots/runtime.json) records the engine's actual map and units. Automatic placement can change with available memory.
 The [main comparison](../../README.md) and [agent report](../../benchmarks/agent-comparison/2026-10-16/README.md) contain the measured outcomes.
 
+## Why prefill 2048 and this GPU order
+
+The [published tuning history](../../benchmarks/throughput/glm-maya-m-20261016/README.md) includes 18 unique earlier throughput requests.
+With the earlier `[0,2,3,1]` order, two requests per prefill value gave mean total times of 78.108 s at 2048,
+80.312 s at 4096, 85.993 s at 6144 and 93.361 s at 8192. The shortest mean time and highest mean prompt throughput selected 2048.
+
+Later order trials retained `[2,0,1,3]` based on its mean decode rate, 45.33 tok/s versus 44.65 for `[0,2,1,3]`.
+Its mean total time was slightly longer, 74.979 s versus 73.925 s. Putting the RTX 3090 last with MTP, `[2,3,1,0]`,
+reduced mean decode rate to 39.87 tok/s and was reverted. The raw GPU maps show that base-layer and expert allocations also changed.
+
+These small sequential samples reflect the mixed PCIe topology and a roughly 59.4K-token synthetic prompt with 512 generated tokens.
+The prefill sweep preceded the order trials; every prefill/order combination and agent-task outcome was not measured.
+The report distinguishes each selection criterion and retains the unsuccessful attempt alongside the chosen configuration.
+
 ## Prepare a separate installation
 
 Use CUDA 12.8 for the V100 and RTX30 combination. The helper records the relevant build flags; it does not run a fresh benchmark or change an existing service.

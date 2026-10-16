@@ -20,3 +20,8 @@ Measured on October 16, 2026. GPU indices are physical `nvidia-smi` indices.
 The observed PCIe links are captured in [system-info.json](../benchmarks/agent-comparison/2026-10-16/snapshots/system-info.json).
 No PCIe rewire or hardware change was made between these two measured deployments.
 Power limits, clocks and thermal effects were not controlled as experimental factors. One host and a fixed model order limit generalization.
+
+Earlier [GLM GPU-order and MTP placement trials](../benchmarks/throughput/glm-maya-m-20261016/README.md#3-move-the-rtx-3060-away-from-the-last-stage)
+measured `[0,2,3,1]`, `[0,2,1,3]`, `[2,0,1,3]` and `[2,3,1,0]` on this topology.
+The retained order favored mean decode rate; a different order had the shorter mean total time.
+Automatic layer/expert placement changed with order, and no PCIe link-width comparison was performed.

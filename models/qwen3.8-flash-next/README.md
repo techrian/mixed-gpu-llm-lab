@@ -88,6 +88,13 @@ output limit, and zero prompt cache reuse.
 The initial comparisons specified temperature `0.7` in the request; the final runs omitted sampling
 fields and used the defaults above. The 1024-to-2048 comparison also changed the VRAM reserve.
 These rows do not constitute one experiment with all other conditions held constant.
+
+Prefill **6144** was retained for the shortest mean total time in the initial sweep; 4096 had the higher mean decode rate,
+while 8192 had lower prompt throughput and longer total time than 6144. The [full 22-request history](../../benchmarks/throughput/README.md#qwen-prefill-and-later-repeat-results)
+also lists the later repeats and sampling/swap changes. The Qwen records use fixed GPU order `[2,0,1,3]`.
+The [separate GLM GPU-order trials](../../benchmarks/throughput/glm-maya-m-20261016/README.md#3-move-the-rtx-3060-away-from-the-last-stage)
+document that model's placement experiments; they do not establish a Qwen GPU-order optimum.
+
 The output limit was reached during internal reasoning, so these are throughput measurements,
 not answer-quality results. Values are derived from the existing JSON; see
 [measurement files and conditions](../../benchmarks/throughput/README.md).
