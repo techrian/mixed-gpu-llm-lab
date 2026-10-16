@@ -1,0 +1,57 @@
+{
+  "model": "qwen",
+  "task_id": "M04",
+  "title": "Retry policy maintenance with edge cases",
+  "category": "Maintenance",
+  "trial": 1,
+  "ordinal": 12,
+  "success": true,
+  "partial_score": 1.0,
+  "checks": [
+    {
+      "check": "hidden behavior checks",
+      "passed": true
+    },
+    {
+      "check": "visible tests actually run",
+      "passed": true
+    },
+    {
+      "check": "test and unrelated files preserved",
+      "passed": true
+    },
+    {
+      "check": "final response returned",
+      "passed": true
+    }
+  ],
+  "wall_s": 28.3749,
+  "first_tool_s": 3.718817842993303,
+  "llm_s": 27.880605544007267,
+  "tool_s": 0.477720248978585,
+  "turns": 7,
+  "tool_calls": 7,
+  "schema_valid_calls": 7,
+  "tool_errors": 0,
+  "injected_faults": 0,
+  "multi_call_batches": 1,
+  "ttft_s": [
+    2.7632931980042486,
+    1.8652283560077194,
+    0.25566185799834784,
+    0.27613484200264793,
+    0.4788881929998752,
+    1.1484791399998358,
+    1.9128427210089285
+  ],
+  "stop_reason": "final_response",
+  "usage": {
+    "prompt_tokens": 12436,
+    "completion_tokens": 1653,
+    "cached_prompt_tokens": 10771
+  },
+  "errors": [],
+  "final_response": "Patched `retry_policy.py` to enforce the full documented contract while keeping the original signature and docstring:\n\n```python\ndef should_retry(method, status, attempt):\n    \"\"\"Retry GET/HEAD only, on 429 or 503, and only while attempt < 3. attempt starts at 1.\"\"\"\n    return (\n        isinstance(method, str)\n        and method.upper() in (\"GET\", \"HEAD\")\n        and status in (429, 503)\n        and attempt < 3\n    )\n```\n\n- Old body was only `status >= 500`, so it retried POST/PUT, 500/502/504, and ignored the attempt limit.\n- Case-insensitive via `method.upper()`; status matched exactly against the allowed set (so 500/502/504 and 200/404 are excluded); `attempt < 3` enforced.\n\nVerification:\n- `python3 test_visible.py` → `visible tests PASS`.\n- Ran 24 ad-hoc edge cases (all passed, strict `is`/bool identity): lowercase/mixed-case `get`/`Head`, HEAD + 429, 429 at attempt 2, attempt 2 vs boundary 3, POST/PUT/OPTIONS/DELETE rejected, 500/502/504/200/404 rejected, numeric-equivalent `429.0` accepted, `True` not treated as a retryable status.\n- `KEEP.txt` and `test_visible.py` left untouched; no extra files added.",
+  "run_path": "runs/qwen/M04-r1",
+  "failed_checks": []
+}

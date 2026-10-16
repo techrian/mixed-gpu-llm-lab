@@ -1,105 +1,96 @@
-# Strata Qwen3.8 mixed GPU setup
+# Mixed GPU LLM Lab
 
-Configuration and recorded benchmarks for **Qwen3.8-Flash-Next-Uncensored Q4_K_M** on an
-RTX 3090 24 GiB, RTX 3060 12 GiB, and two V100 32 GiB GPUs. This snapshot was taken from
-the running setup on October 15, 2026.
+## Measured agent results — October 16, 2026
 
-The inference engine is [Niko1221/Strata](https://github.com/Niko1221/Strata).
-This repository contains configuration templates, helper scripts, build and restoration instructions,
-and existing benchmark results. The upstream inference source is unmodified.
+**24 tasks × 3 repetitions × 2 deployed systems = 144 measured episodes**, on the same RTX 3090 + RTX 3060 + dual V100 PC.
 
-## Recorded configuration
+| Metric | Qwen3.8 Flash Next Uncensored Q4_K_M | GLM5.3 Flash Maya-M |
+| --- | ---: | ---: |
+| Complete task success | **69/72 · 95.8%** | **69/72 · 95.8%** |
+| Assistant-role weighted score | 96.7% | 95.8% |
+| Tasks passed in all three repetitions | 21/24 | **22/24** |
+| Successful completions/hour, failed time included | **161.6** | 141.3 |
+| Successful-episode median | **20.25 s** | 21.19 s |
+| Successful-episode p95 | **42.38 s** | 48.59 s |
+| Native tool argument/schema validity | 98.0% · 399/407 | **99.1% · 325/328** |
+| Mean tool calls per episode | 5.65 | **4.56** |
 
-| Setting | Value |
-| --- | --- |
-| Model | `orcarouter/Qwen3.8-Flash-Next-Uncensored-GGUF`, `Q4_K_M`, 3 shards |
-| Strata | `0.1.43.1`, commit `a0116b2782a5b82622358c04a06496485d12b2d6` |
-| Context | `262144` tokens (256 Ki tokens) |
-| KV cache | `fp16`, placed on GPUs in the recorded setup |
-| Prefill chunk | `6144` |
-| VRAM reserve | `256 MiB` configured per GPU |
-| Expert cache | `auto`; recorded total `24576` slots / `76800 MiB` |
-| PLE | `--ple-io ram`, locked in system RAM |
-| Expert RAM budget | `--resident-budget-gib 16` |
-| Speculative decoding | `--spec 4 --spec-min-p 0.5`, upstream Qwen MTP `q2_0`, CJK draft vocabulary |
-| Vision | F16 mmproj on **physical GPU 2 (V100)** |
-| API sampling defaults | temperature `1.0`, top_p `0.95`, top_k `20`, min_p `0.0` |
-| Process swap | systemd cgroup `MemorySwapMax=0` |
+**On the 67 matched episodes both systems completed successfully, Qwen's geometric mean completion time was 13.0% shorter.**
+The Qwen/GLM time ratio was **0.870**, with a paired task-cluster bootstrap 95% interval of **0.806–0.943**.
 
-The `24576` slots cover all experts. During prefill, some expert slots lend their VRAM to temporary
-buffers and the corresponding experts are backed by RAM copies. All experts therefore do not remain
-in VRAM simultaneously throughout prefill. The recorded 6144 startup reported `2648` borrowed slots
-and an `8.05 GiB` page-locked RAM complement.
+[**Excel workbook — 14 sheets**](benchmarks/agent-comparison/2026-10-16/AgentBenchmark_Qwen38_vs_GLM53.xlsx) ·
+[Method, categories and failures](benchmarks/agent-comparison/2026-10-16/README.md) ·
+[Machine-readable statistics](benchmarks/agent-comparison/2026-10-16/summary_stats.json) ·
+[Complete execution records](benchmarks/agent-comparison/2026-10-16/runs)
 
-## GPU numbering and layer placement
+## What the results show
 
-`gpu: [2, 0, 1, 3]`, `gpu_order: as_given`, `layer_split: 16,29,33`.
-Layer indices start at zero.
+- **Overall completion accuracy was equal in this suite.** The role-weighted point estimate favored Qwen by 0.83 percentage points, but its 95% interval was −0.83 to +3.33 points. This workload does not establish a quality winner.
+- **Qwen completed the matched successful work sooner.** Useful throughput was 14.4% higher when time spent on failures was included. These are full task times: reasoning, tool calls, tool execution, retries and the final response.
+- **GLM used fewer tool calls and produced valid tool arguments more consistently.** It also passed all three repetitions on one more task. Extra calls can include legitimate verification, recovery or redundant work; the complete traces show which occurred.
+- **Workload matters.** In the context/instruction category, mean episode times were 22.8 s for Qwen and 41.0 s for GLM. GLM had lower mean times in files/evidence and small maintenance work. Category-level results are below and in the workbook.
 
-| Physical nvidia-smi index | GPU | VRAM | Engine CUDA index | Layers |
-| --- | --- | ---: | --- | --- |
-| 0 | RTX 3090 | 24 GiB | CUDA1 | 16–28 (13 layers) |
-| 1 | RTX 3060 | 12 GiB | CUDA2 | 29–32 (4 layers) |
-| 2 | V100 / Tesla PG500-216 | 32 GiB | CUDA0 | 0–15 (16 layers) |
-| 3 | V100 / Tesla PG500-216 | 32 GiB | CUDA3 | 33–47 (15 layers), output head / MTP |
+These observations describe two actual deployment stacks, including different quantizations, prefill sizes, KV residency and MTP implementations.
+They do not isolate base-model intelligence or establish a universal ranking. Use the task definitions, failures, settings and traces to decide which tradeoffs fit your work.
 
-The vision process interprets `vision.cuda_device: 2` as **physical GPU 2**. The main engine's CUDA2
-is the RTX 3060 because its device order is remapped. On another PC, check `nvidia-smi` and adjust
-`gpu` and `vision.cuda_device` in the template. The RTX 3060 uses PCIe 4.0 x1 according to the
-owner's hardware report. This layer placement has not been compared against every alternative.
+### Category results
 
-## Restore configuration with an existing installation
+Each category contains four tasks, repeated three times per system. Times include all attempts.
 
-```bash
-git clone https://github.com/techrian/strata-qwen38-mixed-gpu-setup.git
-cd strata-qwen38-mixed-gpu-setup
-cp config/paths.example.json config/paths.local.json
-# Edit Strata, Strata-data, model and CUDA paths, plus the bind address.
-python3 scripts/render_config.py
-# Run after stopping any previous server that uses the same port.
-python3 scripts/run.py
-```
+| Category | Role weight | Qwen passes | GLM passes | Qwen mean time | GLM mean time |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Tool contracts | 15% | 11/12 | 10/12 | 9.23 s | 10.70 s |
+| Business workflows | 25% | 12/12 | 12/12 | 22.68 s | 26.43 s |
+| Files and evidence | 20% | 11/12 | 11/12 | 29.47 s | 25.74 s |
+| Recovery and verification | 20% | 12/12 | 12/12 | 19.03 s | 21.41 s |
+| Context and instruction | 15% | 12/12 | 12/12 | 22.82 s | 41.03 s |
+| Small maintenance tasks | 5% | 11/12 | 12/12 | 24.87 s | 21.18 s |
 
-`config/paths.local.json` and the generated `runtime/` directory are ignored by Git.
-The example binds to `127.0.0.1:8080` without an API key. Set the desired address in the local path
-file; the launcher uses the configured host and does not add an API key.
+### Scope and limitations
 
-This snapshot comes from a working server. Exporting it did not restart the model or run new
-performance measurements. See the [reproduction guide](docs/REPRODUCE.md) for installation on a
-new PC. The complete installation and server launch through the new helper scripts have not been
-exercised separately.
+This is a **custom, controlled OpenAI-native agent loop inspired by Hermes-style use**. The live Hermes gateway, persistent memory and skills were not run.
+Business APIs and knowledge pages are deterministic fixtures; files, SQLite and Python/Node execution are real isolated tasks.
+Each task exposes 3–8 tools and has a 180-second, 12-turn budget. There is no commercial LLM judge.
 
-## Recorded performance
+The Korean wording of one quote task (D03) admits two interpretations. The frozen target is one quote for 100 units; both models produced a 100-quote list in one repetition.
+Excluding that item, both systems scored **67/69 · 97.1%**. The workbook reports this sensitivity separately.
+Other strict failures were bare-JSON formatting (Qwen once, GLM twice) and an empty final API response after correct code changes (Qwen once).
+All 144 saved episodes were audited with the same final grader; [grading corrections and original verdicts](benchmarks/agent-comparison/2026-10-16/grading-audit.json) are retained.
 
-Measured on a Ryzen 7 9700X, 64 GB class RAM (about 60.5 GiB visible to Linux), Ubuntu 24.04,
-and 100 GiB total VRAM. Requests used the same 61,679-token synthetic prompt shape, a 512-token
-output limit, and zero prompt cache reuse.
+Three repeats of 24 authored tasks are a limited sample. Image understanding, real accounts, browser/GUI work, a production-sized tool catalog, maximum-context saturation and long unattended operation were not evaluated.
+GLM ran before Qwen on one host; model order was not counterbalanced. These are not official BFCL, tau-bench, Terminal-Bench or Hermes leaderboard scores.
 
-| Configuration | Runs | Mean prompt throughput | Mean decode rate | Mean request time |
-| --- | ---: | ---: | ---: | ---: |
-| Prefill 512 / reserve 700 | 2 | 893.0 tok/s | 71.3 tok/s | 76.297 s |
-| Prefill 1024 / reserve 700 | 2 | 1258.1 tok/s | 71.5 tok/s | 56.245 s |
-| Prefill 2048 / reserve 256 | 2 | 1663.3 tok/s | 72.6 tok/s | 44.181 s |
-| Prefill 4096 / reserve 256 | 2 | 2066.3 tok/s | 73.7 tok/s | 36.845 s |
-| Prefill 6144 / reserve 256, initial | 2 | 2202.4 tok/s | 70.8 tok/s | 35.293 s |
-| Prefill 8192 / reserve 256 | 2 | 1969.3 tok/s | 69.8 tok/s | 38.707 s |
-| **Final 6144, API defaults, swap blocked (F010–F012)** | **3** | **2212.0 tok/s** | **69.7 tok/s** | **35.280 s** |
+## Recorded deployments
 
-The initial comparisons specified temperature `0.7` in the request; the final runs omitted sampling
-fields and used the defaults above. The 1024-to-2048 comparison also changed the VRAM reserve.
-These rows do not constitute one experiment with all other conditions held constant.
-The output limit was reached during internal reasoning, so these are throughput measurements,
-not answer-quality results. Values are derived from the existing JSON; see
-[measurement files and conditions](benchmarks/README.md).
+| Setting | Qwen profile | GLM profile |
+| --- | --- | --- |
+| Model | OrcaRouter Qwen3.8 Flash Next Uncensored, Q4_K_M | Peasant Smith GLM5.3 Flash Maya-M, mixed quantization with IQ2_S experts |
+| Engine | [Niko1221/Strata](https://github.com/Niko1221/Strata), 0.1.43.1, `a0116b2` | [mw00/project-maya](https://github.com/mw00/project-maya), 1.1.11, `362671a` |
+| Context ceiling | 262144 | 262144 |
+| Prefill chunk | 6144 | 2048 |
+| KV | FP16, GPU-resident configuration | FP16, streaming with 32768 resident positions |
+| GPU order, physical indices | `[2,0,1,3]` | `[2,0,1,3]` |
+| Base-layer ranges, half-open | `[0,16) / [16,29) / [29,33) / [33,48)` | `[0,16) / [16,27) / [27,31) / [31,45)` observed auto split |
+| Experts | All 24576 cache slots; prefill borrows slots with RAM backing | 10102 VRAM slots including slack; remaining experts in pinned RAM, disk eviction off |
+| MTP | Qwen native draft, `--spec 4 --spec-min-p 0.5` | GLM MTP, enabled |
+| Vision | F16 encoder on physical GPU 2 | F16 encoder on physical GPU 2 |
+| Process swap | `MemorySwapMax=0` | `MemorySwapMax=0` |
 
-## Contents
+Both used API defaults temperature 1.0, top_p 0.95, top_k 20 and min_p 0.0. GLM reasoning effort was high; model-native reasoning behavior differs.
+Vision was loaded during measurement, but the agent tasks were text-only. MTP ran on the last V100 in both recorded layouts.
 
-- `config/`: recorded engine and vision settings with machine paths separated out.
-- `scripts/`: configuration rendering, server launch, and CUDA build helpers.
-- `systemd/`: optional user service example with swap blocked.
-- `snapshots/`: environment, build metadata, and selected startup lines with private details removed.
-- `benchmarks/`: existing October 14–15 JSON, scripts, and comparison notes.
+## Configuration and reproduction
 
-Model weights, MTP artifacts, prepared packs, engine binaries, virtual environments, and GitHub
-credentials are excluded. Model files remain subject to their distributor's license.
-Upstream attribution and license information are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+- [Qwen settings, build and restoration](models/qwen3.8-flash-next/README.md)
+- [GLM Maya-M settings, build and restoration](models/glm5.3-flash-maya/README.md)
+- [Hardware and physical GPU/CUDA mapping](docs/hardware.md)
+- [Persistent services and manual model switching](docs/services.md)
+- [Agent task definitions, scoring and reproduction](benchmarks/agent-comparison/2026-10-16/README.md)
+- [Earlier Qwen prefill/decode throughput experiments](benchmarks/throughput/README.md)
+- [Upstream sources and licenses](THIRD_PARTY_NOTICES.md)
+
+This repository publishes configurations, helper scripts, measurements and reproducible task fixtures.
+Engine source and model weights are obtained from their upstream projects. Clean installation using the exported helpers has not been exercised end to end.
+Generated runtime configurations and local paths are ignored by Git. The example API bind address is `127.0.0.1`.
+
+The original Qwen-only repository is preserved at tag **`qwen38-baseline-20261015`**. Its history remains in this repository.

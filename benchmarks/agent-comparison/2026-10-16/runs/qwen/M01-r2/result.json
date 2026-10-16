@@ -1,0 +1,57 @@
+{
+  "model": "qwen",
+  "task_id": "M01",
+  "title": "Small Python timezone bug fix",
+  "category": "Maintenance",
+  "trial": 2,
+  "ordinal": 36,
+  "success": true,
+  "partial_score": 1.0,
+  "checks": [
+    {
+      "check": "hidden behavior checks",
+      "passed": true
+    },
+    {
+      "check": "visible tests actually run",
+      "passed": true
+    },
+    {
+      "check": "test and unrelated files preserved",
+      "passed": true
+    },
+    {
+      "check": "final response returned",
+      "passed": true
+    }
+  ],
+  "wall_s": 29.2265,
+  "first_tool_s": 4.0109976310050115,
+  "llm_s": 28.767145521982457,
+  "tool_s": 0.44225893799739424,
+  "turns": 7,
+  "tool_calls": 9,
+  "schema_valid_calls": 9,
+  "tool_errors": 0,
+  "injected_faults": 0,
+  "multi_call_batches": 3,
+  "ttft_s": [
+    2.766825380997034,
+    1.825685962990974,
+    1.4472828829893842,
+    1.1462510989949806,
+    0.3173006790020736,
+    1.845716057010577,
+    1.684284006987582
+  ],
+  "stop_reason": "final_response",
+  "usage": {
+    "prompt_tokens": 14086,
+    "completion_tokens": 1554,
+    "cached_prompt_tokens": 11912
+  },
+  "errors": [],
+  "final_response": "버그를 수정하고 검증했습니다.\n\n**원인:** `as_utc`가 파싱 결과에 항상 `.replace(tzinfo=timezone.utc)`를 적용해, 입력에 붙어 있던 오프셋을 *변환*하는 대신 덮어써버렸습니다(`+09:00` 09:00 → 09:00+00:00으로 잘못 보존).\n\n**변경 (`timeutil.py`):**\n- 오프셋이 있는 입력 → `.astimezone(timezone.utc)`로 실제로 UTC 환산\n- naive 입력만 `.replace(tzinfo=timezone.utc)`로 UTC로 가정 (판정은 `tzinfo.utcoffset()` 기준)\n- `Z` 접미사는 3.11 미만에서도 동작하도록 `+00:00`으로 정규화\n\n공개 인터페이스는 그대로입니다: `as_utc(text) -> aware UTC datetime`, 호출 시그니처·예외 동작(`ValueError`) 변동 없음.\n\n**검증:**\n```\n$ python3 test_visible.py\nvisible tests PASS\n```\n추가 수동 확인: `09:00+09:00 → 00:00+00:00`, `00:00-05:30 → 05:30+00:00`, naive `09:00:00 → 09:00+00:00`, 마이크로초/`Z`/날짜만 있는 입력도 정상, 결과는 모두 `tzinfo=timezone.utc`. KEEP.txt와 test_visible.py는 손대지 않았습니다.",
+  "run_path": "runs/qwen/M01-r2",
+  "failed_checks": []
+}
