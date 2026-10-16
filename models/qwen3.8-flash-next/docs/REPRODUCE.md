@@ -107,14 +107,14 @@ is optional; exporting this repository did not change the existing service.
 ## 6. Optional persistent user service with swap blocked
 
 Stop or otherwise resolve an existing Strata or other model server using the same port first.
-Check that the paths in `systemd/strata-qwen.service` match this repository's clone location.
+Check that the paths in `systemd/qwen3.8_flash_next_strata.service` match this repository's clone location.
 
 ```bash
 mkdir -p "$HOME/.config/systemd/user"
-cp systemd/strata-qwen.service "$HOME/.config/systemd/user/strata-qwen.service"
+cp systemd/qwen3.8_flash_next_strata.service "$HOME/.config/systemd/user/qwen3.8_flash_next_strata.service"
 systemctl --user daemon-reload
-systemctl --user enable --now strata-qwen.service
-systemctl --user show strata-qwen.service -p ActiveState -p MemorySwapMax -p MemorySwapCurrent
+systemctl --user enable --now qwen3.8_flash_next_strata.service
+systemctl --user show qwen3.8_flash_next_strata.service -p ActiveState -p MemorySwapMax -p MemorySwapCurrent
 ```
 
 `MemorySwapMax=0` applies to this service's Python server, engine, and vision child processes.

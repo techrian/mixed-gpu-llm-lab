@@ -103,7 +103,7 @@ python3 scripts/run.py
 
 The renderer creates `runtime/maya.json` and an executable vision wrapper. The example binds to `127.0.0.1:8080` without an API key.
 Run one model at a time on this hardware; the two profile examples share the same API port and GPUs.
-For swap blocking, adapt the optional [user service](systemd/project-maya-glm.service) to your clone location.
+For swap blocking, adapt the optional [user service](systemd/glm5.3_maya_strata.service) to your clone location.
 The measured installation used a transient user unit; exporting this profile does not replace it or enable boot startup.
 
 Model weights, packs, learned profile binaries, vision files and engine binaries are not included.
