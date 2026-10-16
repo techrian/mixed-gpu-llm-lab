@@ -35,7 +35,45 @@ The image runs tools as UID/GID 1000; workspaces must be writable by that identi
 
 The common budget is **12 LLM turns, 4096 completion tokens per turn, 180 seconds per episode**. Server defaults are temperature 1.0,
 top_p 0.95, top_k 20 and min_p 0.0; no generation seed is fixed. An early unique session tag prevents reuse of a prior task's full prompt.
-Within-episode prefix reuse is allowed. GLM reasoning is high; native model reasoning and deployment optimizations are retained.
+Within-episode prefix reuse is allowed. Native model reasoning and deployment optimizations are retained; effective reasoning settings are detailed below.
+
+## Reasoning settings and token limits
+
+Both models had thinking enabled. The [executed request builder](snapshots/executed-runner.py.txt) sent `max_tokens: 4096` and `tool_choice: auto`
+without `reasoning_effort`, a thinking override or a reasoning-token budget. Server and model-template defaults therefore applied:
+
+- **Qwen: `xhigh`.** The [recorded configuration](snapshots/qwen-benchmark-config.json) omits `reasoning_effort` and `reasoning_budget_tokens`.
+  The loaded pack's `tokenizer/chat_template.jinja` resolves an omitted effort with `reasoning_effort|default('xhigh')`, its highest supported level.
+  There was no separate reasoning-token cap; reasoning shared the request's 4096-token generation limit with answer text and tool calls.
+- **GLM: `high`.** The [recorded configuration](snapshots/glm-benchmark-config.json) sets `reasoning_effort: high`, also confirmed by the
+  [saved health response](snapshots/glm-health.json). GLM supports `low`, `high` and `max`; this benchmark did not use `max`.
+  The pinned Maya server defaults `thinking_budget` to 32768 tokens, then clamps it to leave a quarter of `max_tokens`, with a 1024-token reserve floor,
+  for the answer. With `max_tokens: 4096`, the effective reasoning cap was `min(32768, 4096 - 1024) = 3072` tokens.
+
+### Audit of all recorded requests
+
+The table below aggregates every `trace` entry in `runs/{qwen,glm}/*/trajectory.json`, excluding the unscored warm-up.
+Completion counts come from `response.usage.completion_tokens`; output-limit endings come from `response.finish_reason == "length"`.
+
+| Observation | Qwen | GLM |
+| --- | ---: | ---: |
+| Measured episodes | 72 | 72 |
+| Measured LLM requests | 400 | 336 |
+| Largest total completion per request | 1435 tokens | 772 tokens |
+| Requests with 3072 or more total completion tokens | 0 | 0 |
+| Requests ending at the output-token limit | 0 | 0 |
+
+These are total generated tokens, including reasoning, answer text and native tool calls. They do not measure reasoning tokens separately.
+The largest completions are Qwen [D01-r2, turn 7](runs/qwen/D01-r2/trajectory.json) and GLM [D01-r1, turn 3](runs/glm/D01-r1/trajectory.json).
+All recorded requests ended with `tool_calls` or `stop`.
+
+**GLM never reached its 3072-token reasoning cap:** its largest total completion was only 772 tokens.
+The records provide no evidence that this cap cut its reasoning short or caused its failures in this suite. A cap could matter on a workload that reaches it.
+
+Reasoning effort remains a separate comparison variable. Qwen `xhigh` and GLM `high` are model-specific instructions, not a common measure of reasoning work.
+Raising GLM to `max` could change reasoning, success and completion time; that effect was not measured.
+The published results compare the recorded deployments. Comparing both at their highest reasoning settings would require a separate run with sufficient,
+matching generation and reasoning budgets; equal token allowances would still not imply equal computation across models.
 
 ## Timing and success
 

@@ -33,6 +33,29 @@ The Qwen/GLM time ratio was **0.870**, with a paired task-cluster bootstrap 95% 
 These observations describe two actual deployment stacks, including different quantizations, prefill sizes, KV residency and MTP implementations.
 They do not isolate base-model intelligence or establish a universal ranking. Use the task definitions, failures, settings and traces to decide which tradeoffs fit your work.
 
+### Reasoning settings and observed token use
+
+**Both models had thinking enabled. Qwen used its chat template's default `xhigh`; GLM used the configured `high`.**
+The benchmark requests omitted reasoning-effort overrides. Qwen's highest template level is `xhigh`; GLM also offers `max`, which was not measured here.
+These level names are specific to each model and do not imply equal reasoning work.
+
+| Setting or observation | Qwen | GLM |
+| --- | ---: | ---: |
+| Effective reasoning effort | `xhigh`, template default | `high`, server default |
+| Total generation limit per request | 4096 tokens | 4096 tokens |
+| Separate reasoning-token cap | None within the total generation limit | 3072 tokens, leaving 1024 for the answer |
+| Measured LLM requests across 72 episodes | 400 | 336 |
+| Largest total completion in one request | 1435 tokens | 772 tokens |
+| Requests ending at the output-token limit | 0 | 0 |
+
+Completion counts include reasoning, answer text and generated tool calls; they are not reasoning-only counts.
+**GLM's reasoning cap was never reached:** even its largest total completion, 772 tokens, was below the 3072-token reasoning cap.
+The saved records therefore provide no evidence that this cap cut GLM's reasoning short in this suite.
+
+The comparison retains each deployment's reasoning settings. The effect of raising GLM from `high` to `max` on success and completion time remains unmeasured.
+A comparison of both models at their highest reasoning settings would require a separate run with sufficient, matching generation and reasoning budgets.
+See the [reasoning audit and evidence](benchmarks/agent-comparison/2026-10-16/README.md#reasoning-settings-and-token-limits) for the budget calculation and request records.
+
 ### Category results
 
 Each category contains four tasks, repeated three times per system. Times include all attempts.
@@ -73,10 +96,11 @@ GLM ran before Qwen on one host; model order was not counterbalanced. These are 
 | Base-layer ranges, half-open | `[0,16) / [16,29) / [29,33) / [33,48)` | `[0,16) / [16,27) / [27,31) / [31,45)` observed auto split |
 | Experts | All 24576 cache slots; prefill borrows slots with RAM backing | 10102 VRAM slots including slack; remaining experts in pinned RAM, disk eviction off |
 | MTP | Qwen native draft, `--spec 4 --spec-min-p 0.5` | GLM MTP, enabled |
+| Reasoning effort | `xhigh`, chat-template default | `high`, configured server default |
 | Vision | F16 encoder on physical GPU 2 | F16 encoder on physical GPU 2 |
 | Process swap | `MemorySwapMax=0` | `MemorySwapMax=0` |
 
-Both used API defaults temperature 1.0, top_p 0.95, top_k 20 and min_p 0.0. GLM reasoning effort was high; model-native reasoning behavior differs.
+Both used API defaults temperature 1.0, top_p 0.95, top_k 20 and min_p 0.0. Reasoning settings and observed token use are detailed above.
 Vision was loaded during measurement, but the agent tasks were text-only. MTP ran on the last V100 in both recorded layouts.
 
 ## Configuration and reproduction
