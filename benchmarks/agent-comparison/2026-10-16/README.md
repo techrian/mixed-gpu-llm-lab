@@ -96,6 +96,43 @@ each task keeps its three repetitions together. Small authored workloads limit g
 - D03's Korean wording `100개 견적` admits an alternate scope interpretation. The frozen target is a single quotation for quantity 100.
   The workbook flags this ambiguity. Excluding D03, both score 67/69 (97.1%).
 
+### Paired outcomes where only one model succeeded
+
+Pairing the same task and repetition gives **67 pairs where both passed, 2 where only Qwen passed, 2 where only GLM passed,
+and 1 where both failed**. The four pairs with different verdicts involve three task types; D03 appears in both directions on different repetitions.
+
+| Episode | Qwen | GLM | Complete request/response traces |
+| --- | --- | --- | --- |
+| T02-r3 | Pass: returned only the required JSON object | Fail: correct JSON values wrapped in a Markdown code fence | [Qwen](runs/qwen/T02-r3/trajectory.json) · [GLM](runs/glm/T02-r3/trajectory.json) |
+| D03-r3 | Pass: one quote for 100 units, USD 1350 | Fail: 100 quote objects for quantities 1–100 | [Qwen](runs/qwen/D03-r3/trajectory.json) · [GLM](runs/glm/D03-r3/trajectory.json) |
+| D03-r1 | Fail: 100 quote objects for quantities 1–100 | Pass: one quote for 100 units, USD 1350 | [Qwen](runs/qwen/D03-r1/trajectory.json) · [GLM](runs/glm/D03-r1/trajectory.json) |
+| M04-r3 | Fail: code and verification checks passed; final API content was empty | Pass: code, verification and final response passed | [Qwen](runs/qwen/M04-r3/trajectory.json) · [GLM](runs/glm/M04-r3/trajectory.json) |
+
+**T02 — exact output format.** The request was to query `api`, `billing` and `worker`, then return exactly a JSON object with
+`unhealthy` and `healthy_count`. Both models queried all three services and obtained the correct values. In repetition 3,
+Qwen returned `{"unhealthy": ["billing"], "healthy_count": 2}` directly; GLM surrounded the same object with a Markdown code fence.
+That failed the explicit JSON-only contract. In repetition 1, [Qwen](runs/qwen/T02-r1/trajectory.json) and
+[GLM](runs/glm/T02-r1/trajectory.json) both used code fences, accounting for the one pair both failed.
+
+**D03 — ambiguous quote quantity.** The task required reading the current price list and discount policy, preserving the source files,
+and writing `quote.json` with the required fields and source paths. The frozen target was a single object: unit price USD 15,
+quantity 100, discount 10%, total USD 1350. The Korean phrase `100개 견적` also permits the interpretation "100 quotes".
+Qwen took that interpretation in repetition 1; GLM did so in repetition 3. Both generated arrays of 100 quotes for quantities 1–100,
+using the current USD 15 price and quantity-based discount rule. The saved checks rejected the array where they expected one quote object.
+The source-field check also expected an object and failed on the array; that verdict alone does not establish that a model failed to read the sources.
+This ambiguity limits capability comparisons from this item; the D03-excluded result remains 67/69 (97.1%) for both models.
+
+**M04 — successful code change with missing completion report.** The contract was to preserve the retry function's interface,
+allow only case-insensitive GET/HEAD requests with status 429 or 503 while `attempt < 3`, run the visible tests and verify edge cases.
+In repetition 3, both models passed the hidden behavior checks, actually ran the visible tests, and preserved tests and unrelated files.
+Qwen's final API `content` was empty, so it failed the required nonempty completion response. GLM also returned a completion report and passed all checks.
+The empty response's cause was not diagnosed; this episode's failed condition is completion reporting, with the code checks recorded as passed.
+
+These cases document output-contract adherence, interpretation of an ambiguous request and end-of-task reporting in the measured deployments.
+They do not isolate the effects of base-model architecture, quantization, reasoning effort or serving behavior.
+
+### Grading audit
+
 The original graders rejected some equivalent representations. All 144 saved episodes were audited symmetrically without new inference or timing changes:
 equivalent absolute/relative workspace paths, complete authoritative mutation responses where a separate reread was not requested,
 financial decimal strings when no JSON numeric type was required, and required fields with additional metadata when extra keys were not forbidden.

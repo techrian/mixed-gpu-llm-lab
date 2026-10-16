@@ -56,6 +56,26 @@ The comparison retains each deployment's reasoning settings. The effect of raisi
 A comparison of both models at their highest reasoning settings would require a separate run with sufficient, matching generation and reasoning budgets.
 See the [reasoning audit and evidence](benchmarks/agent-comparison/2026-10-16/README.md#reasoning-settings-and-token-limits) for the budget calculation and request records.
 
+### Where only one model succeeded
+
+Of the **72 matching task/repetition pairs**, both models passed 67, only Qwen passed 2, only GLM passed 2, and both failed 1.
+The four pairs with different outcomes were:
+
+| Episode | Required work | Qwen | GLM |
+| --- | --- | --- | --- |
+| T02-r3 | Query three services and return only a JSON object | [Pass](benchmarks/agent-comparison/2026-10-16/runs/qwen/T02-r3/result.json): bare JSON | [Fail](benchmarks/agent-comparison/2026-10-16/runs/glm/T02-r3/result.json): correct values inside a Markdown code fence |
+| D03-r3 | Use current prices and discounts for one quote covering 100 units | [Pass](benchmarks/agent-comparison/2026-10-16/runs/qwen/D03-r3/result.json): quantity 100, total USD 1350 | [Fail](benchmarks/agent-comparison/2026-10-16/runs/glm/D03-r3/result.json): generated 100 quotes for quantities 1–100 |
+| D03-r1 | Same quote task | [Fail](benchmarks/agent-comparison/2026-10-16/runs/qwen/D03-r1/result.json): generated 100 quotes for quantities 1–100 | [Pass](benchmarks/agent-comparison/2026-10-16/runs/glm/D03-r1/result.json): quantity 100, total USD 1350 |
+| M04-r3 | Fix and verify the HTTP retry policy, then report completion | [Fail](benchmarks/agent-comparison/2026-10-16/runs/qwen/M04-r3/result.json): code and verification passed, but final API content was empty | [Pass](benchmarks/agent-comparison/2026-10-16/runs/glm/M04-r3/result.json): code, verification and final response passed |
+
+`r1` and `r3` identify independent repetitions of the same task. D03's Korean phrase `100개 견적` can also be read as "100 quotes";
+the frozen target was one quote for 100 units. Each model took the alternate interpretation once.
+For M04, Qwen passed the code and execution checks; the failed condition was the missing final response, whose cause was not diagnosed.
+The one pair both failed was T02-r1: both returned correct values inside a code fence despite the JSON-only instruction.
+
+These observed differences concern output format, ambiguous instruction interpretation and completion reporting.
+See the [paired-case explanations and complete response traces](benchmarks/agent-comparison/2026-10-16/README.md#paired-outcomes-where-only-one-model-succeeded) for the exact requirements and evidence.
+
 ### Category results
 
 Each category contains four tasks, repeated three times per system. Times include all attempts.
