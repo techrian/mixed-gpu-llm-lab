@@ -1,0 +1,254 @@
+import hashlib
+import json
+import os
+import signal
+import stat
+import subprocess
+import sys
+import time
+import traceback
+import urllib.error
+import urllib.request
+from datetime import datetime
+from pathlib import Path
+from statistics import mean
+
+
+BASE = 'http://127.0.0.1:8080'
+CONFIG = Path('/home/USER/project-maya/maya-maya-m.json')
+QWEN_CONFIG = Path('/home/USER/Strata/strata-orca-q4_k_m.json')
+GLM_UNIT = 'project-maya-glm.service'
+QWEN_UNIT = 'strata-qwen.service'
+BASELINE = Path('/home/USER/Maya-data/benchmarks/maya-m-gpu-order-v100first-prefill2048-context262144-20261016')
+STAMP = datetime.now().strftime('%Y%m%d-%H%M%S')
+ROOT = Path('/home/USER/Maya-data/benchmarks') / ('maya-m-prefill1024-final-order-context262144-' + STAMP)
+ROOT.mkdir()
+STATUS_FILE = Path('/tmp/glm-prefill1024-test-current.json')
+EXPECTED_ORDER = [2, 0, 1, 3]
+PARAGRAPH = (
+    'Record 1842: The archive lists a cedar cabinet, a brass compass, a blue notebook, '
+    'and a small glass bottle. The clerk checked each item, copied its condition, '
+    'and placed the record in the west wing ledger. No item was moved during the inspection. '
+)
+
+
+def dump(path, obj):
+    Path(path).write_text(json.dumps(obj, ensure_ascii=False, indent=2) + '\n')
+
+
+def command(args, timeout=180):
+    p = subprocess.run(args, text=True, capture_output=True, timeout=timeout)
+    if p.returncode:
+        raise RuntimeError(f'{args[:4]} failed: {p.stderr.strip()}')
+    return p.stdout
+
+
+def properties(unit):
+    out = command(['systemctl', '--user', 'show', unit, '-p', 'Id', '-p', 'ActiveState', '-p', 'SubState',
+                   '-p', 'UnitFileState', '-p', 'MainPID', '-p', 'MemoryCurrent', '-p', 'MemorySwapCurrent',
+                   '-p', 'MemorySwapMax', '-p', 'NRestarts'])
+    return dict(line.split('=', 1) for line in out.splitlines() if '=' in line)
+
+
+def phase(stage, **extra):
+    value = {'root': str(ROOT), 'stage': stage, 'at': datetime.now().isoformat(), **extra}
+    dump(STATUS_FILE, value)
+    print(json.dumps(value, ensure_ascii=False), flush=True)
+
+
+def api(path, timeout=10):
+    with urllib.request.urlopen(BASE + path, timeout=timeout) as response:
+        return json.load(response)
+
+
+def atomic_config(content):
+    mode = stat.S_IMODE(CONFIG.stat().st_mode)
+    temporary = CONFIG.with_name(CONFIG.name + '.prefill1024-test.tmp')
+    temporary.write_bytes(content)
+    temporary.chmod(mode)
+    os.replace(temporary, CONFIG)
+
+
+def wait_ready(unit, model, order=None, timeout=480):
+    deadline, next_note = time.monotonic() + timeout, 0
+    while time.monotonic() < deadline:
+        try:
+            health, metrics = api('/health'), api('/metrics')
+            mapping = [item['index'] for item in (metrics.get('gpu_map') or [])]
+            if health.get('status') == 'ok' and health.get('model') == model and health.get('max_context') == 262144 \
+                    and (order is None or mapping == order):
+                return health, metrics
+        except (OSError, ValueError, urllib.error.URLError):
+            pass
+        if time.monotonic() >= next_note:
+            p = properties(unit)
+            print(json.dumps({'event': 'waiting_for_ready', 'unit': unit, 'state': p['ActiveState'],
+                              'elapsed_s': round(timeout - (deadline - time.monotonic()))}), flush=True)
+            if p['ActiveState'] in ('failed', 'inactive'):
+                raise RuntimeError('Service stopped during loading: ' + str(p))
+            next_note = time.monotonic() + 20
+        time.sleep(2)
+    raise TimeoutError(f'{unit} did not load within {timeout} seconds')
+
+
+def interrupted(signum, frame):
+    raise KeyboardInterrupt(f'Signal {signum}')
+
+
+signal.signal(signal.SIGTERM, interrupted)
+original_bytes = CONFIG.read_bytes()
+original = json.loads(original_bytes)
+qwen_original_bytes = QWEN_CONFIG.read_bytes()
+before = {u: properties(u) for u in (QWEN_UNIT, GLM_UNIT)}
+dump(ROOT / 'services-before.json', before)
+(ROOT / 'config.before.json').write_bytes(original_bytes)
+original_args = original['args']
+assert original_args[original_args.index('--prefill') + 1] == '2048'
+assert original_args[original_args.index('--max-context') + 1] == '262144'
+assert original['gpu'] == EXPECTED_ORDER
+candidate = json.loads(original_bytes)
+candidate['args'][candidate['args'].index('--prefill') + 1] = '1024'
+candidate_bytes = (json.dumps(candidate, ensure_ascii=False, indent=1) + '\n').encode()
+dump(ROOT / 'metadata.json', {
+    'created': datetime.now().isoformat(), 'changed_setting': {'prefill': {'before': 2048, 'test': 1024}},
+    'requested_measured_requests': 3, 'additional_warmup_requests': 0,
+    'context': 262144, 'physical_gpu_order': EXPECTED_ORDER, 'kv': 'fp16',
+    'sampling_defaults': candidate['sampling'], 'reasoning_effort': candidate['reasoning_effort'],
+    'engine_commit': command(['git', '-C', '/home/USER/project-maya', 'rev-parse', 'HEAD']).strip(),
+    'engine_sha256': hashlib.sha256(Path(candidate['exe']).read_bytes()).hexdigest(),
+    'original_config_sha256': hashlib.sha256(original_bytes).hexdigest(),
+    'qwen_config_sha256': hashlib.sha256(qwen_original_bytes).hexdigest(),
+    'baseline_directory': str(BASELINE), 'baseline_is_historical_not_fresh': True,
+    'restoration_policy': 'Restore original GLM config and originally active model service; preserve boot enablement.',
+})
+
+error = None
+restore_error = None
+mutated = False
+runs = []
+try:
+    phase('stopping_original_service', services=before)
+    for unit in (QWEN_UNIT, GLM_UNIT):
+        if before[unit]['ActiveState'] == 'active':
+            command(['systemctl', '--user', 'stop', unit])
+    atomic_config(candidate_bytes)
+    mutated = True
+    (ROOT / 'config.test.json').write_bytes(candidate_bytes)
+    phase('loading_glm_prefill1024')
+    command(['systemctl', '--user', 'start', GLM_UNIT])
+    health, starting_metrics = wait_ready(GLM_UNIT, candidate['model_name'], EXPECTED_ORDER)
+    dump(ROOT / 'health-before.json', health)
+    dump(ROOT / 'metrics-before.json', starting_metrics)
+    dump(ROOT / 'service-during.json', properties(GLM_UNIT))
+    processes = command(['ps', '-eo', 'pid=,args='])
+    engine_commands = [line.strip() for line in processes.splitlines()
+                       if candidate['exe'] in line and '--glm-pack' in line]
+    (ROOT / 'engine-command.txt').write_text('\n'.join(engine_commands) + '\n')
+    if not any('--prefill 1024' in line for line in engine_commands):
+        raise RuntimeError('Could not confirm --prefill 1024 on the running engine')
+    phase('glm_ready', engine=starting_metrics.get('engine'), physical_gpu_order=EXPECTED_ORDER)
+    before_requests = (starting_metrics.get('totals') or {}).get('requests', 0)
+    for repeat in range(1, 4):
+        label = f'P1024-R{repeat}'
+        context = f'Benchmark {label}.\n' + PARAGRAPH * 1100
+        body = {'model': candidate['model_name'],
+                'messages': [{'role': 'user', 'content': context +
+                    '\nContinue with at least 512 concise numbered observations. Do not summarize or stop early.'}],
+                'max_tokens': 512, 'stream': False}
+        dump(ROOT / f'{label}.request.json', body)
+        request = urllib.request.Request(BASE + '/v1/chat/completions', data=json.dumps(body).encode(),
+                                         headers={'Content-Type': 'application/json'})
+        phase('measuring', repeat=repeat, label=label)
+        start = time.perf_counter()
+        with urllib.request.urlopen(request, timeout=1200) as response:
+            result = json.load(response)
+        wall = time.perf_counter() - start
+        metrics = api('/metrics', timeout=30)
+        last = metrics['requests'][0]
+        dump(ROOT / f'{label}.response.json', result)
+        record = {
+            'label': label, 'model': 'Maya-M IQ2_S', 'gpu_order': EXPECTED_ORDER,
+            'prefill': 1024, 'context': 262144, 'kv': 'fp16',
+            'sampling_request': 'omitted; configured defaults apply', 'sampling_defaults': candidate['sampling'],
+            'reasoning_effort': candidate['reasoning_effort'], 'wall_s': round(wall, 3),
+            'response_usage': result.get('usage'), 'response_finish': result['choices'][0].get('finish_reason'),
+            'metrics': last, 'engine': metrics.get('engine'), 'gpu_map': metrics.get('gpu_map'),
+            'service': properties(GLM_UNIT),
+        }
+        dump(ROOT / f'{label}.json', record)
+        runs.append(record)
+        print(json.dumps({'event': 'measured', 'label': label, 'prompt_tokens': last.get('prompt_tokens'),
+                          'prompt_s': (last.get('prompt_ms') or 0) / 1000,
+                          'prefill_tok_s': last.get('prefill_tok_s'), 'decode_tok_s': last.get('decode_tok_s'),
+                          'wall_s': record['wall_s'], 'output_tokens': last.get('output_tokens'),
+                          'reused': last.get('reused'), 'swap_bytes': record['service'].get('MemorySwapCurrent')},
+                         ensure_ascii=False), flush=True)
+    baseline = [json.loads((BASELINE / f'V021-R{i}.json').read_text()) for i in range(1, 4)]
+
+    def average(records):
+        return {'n': len(records), 'labels': [r['label'] for r in records],
+                **{'mean_' + k: mean(r['metrics'][k] for r in records)
+                   for k in ('prefill_tok_s', 'decode_tok_s')},
+                'mean_prompt_s': mean(r['metrics']['prompt_ms'] / 1000 for r in records),
+                'mean_wall_s': mean(r['wall_s'] for r in records),
+                'output_tokens': [r['metrics']['output_tokens'] for r in records],
+                'reused_tokens': [r['metrics']['reused'] for r in records],
+                'prompt_tokens': [r['metrics']['prompt_tokens'] for r in records],
+                'vram_slots': [r['engine'].get('vram_slots') for r in records],
+                'ram_slots': [r['engine'].get('ram_slots') for r in records]}
+
+    measured_average, baseline_average = average(runs), average(baseline)
+    after_requests = (metrics.get('totals') or {}).get('requests', 0)
+    summary = {'model': 'GLM5.3 Flash Maya-M', 'context': 262144, 'kv': 'fp16',
+               'physical_gpu_order': EXPECTED_ORDER, 'prefill_test': 1024, 'prefill_baseline': 2048,
+               'baseline_directory': str(BASELINE), 'baseline_is_historical_not_fresh': True,
+               'additional_warmup_requests': 0,
+               'test': measured_average, 'baseline': baseline_average,
+               'mean_change_percent': {k: (measured_average['mean_' + k] / baseline_average['mean_' + k] - 1) * 100
+                                       for k in ('prefill_tok_s', 'decode_tok_s', 'wall_s')},
+               'request_counter_before': before_requests, 'request_counter_after': after_requests,
+               'only_three_requests_observed': after_requests - before_requests == 3,
+               'limitations': ['Three 1024 requests and three historical 2048 requests; no new 2048 run.',
+                               'Sequential runs without an extra warmup; expert-cache warmth and run order were not counterbalanced.']}
+    dump(ROOT / 'summary.json', summary)
+    dump(ROOT / 'metrics-after.json', metrics)
+    phase('measurements_complete', summary=summary)
+except BaseException as exc:
+    error = repr(exc)
+    (ROOT / 'failure.txt').write_text(traceback.format_exc())
+    phase('measurement_error', error=error, completed_requests=len(runs))
+finally:
+    try:
+        phase('restoring_original_state', completed_requests=len(runs))
+        command(['systemctl', '--user', 'stop', GLM_UNIT])
+        if mutated:
+            current = json.loads(CONFIG.read_bytes())
+            if current == candidate:
+                atomic_config(original_bytes)
+            else:
+                current['args'][current['args'].index('--prefill') + 1] = original_args[original_args.index('--prefill') + 1]
+                atomic_config((json.dumps(current, ensure_ascii=False, indent=1) + '\n').encode())
+        restored_health = None
+        if before[QWEN_UNIT]['ActiveState'] == 'active':
+            command(['systemctl', '--user', 'start', QWEN_UNIT])
+            qcfg = json.loads(qwen_original_bytes)
+            restored_health, restored_metrics = wait_ready(QWEN_UNIT, qcfg['model_name'])
+        elif before[GLM_UNIT]['ActiveState'] == 'active':
+            command(['systemctl', '--user', 'start', GLM_UNIT])
+            restored_health, restored_metrics = wait_ready(GLM_UNIT, original['model_name'], original['gpu'])
+        after = {u: properties(u) for u in (QWEN_UNIT, GLM_UNIT)}
+        restoration = {'services': after, 'health': restored_health,
+                       'glm_config_byte_identical': CONFIG.read_bytes() == original_bytes,
+                       'qwen_config_byte_identical': QWEN_CONFIG.read_bytes() == qwen_original_bytes,
+                       'boot_enablement_unchanged': all(after[u]['UnitFileState'] == before[u]['UnitFileState'] for u in before)}
+        dump(ROOT / 'restoration.json', restoration)
+        if not restoration['glm_config_byte_identical']:
+            print('NOTE: Other GLM config changes preserved while restoring its original prefill.', flush=True)
+        phase('complete' if error is None else 'failed_but_restored', completed_requests=len(runs),
+              error=error, restoration=restoration)
+    except BaseException as exc:
+        restore_error = repr(exc)
+        (ROOT / 'restoration-failure.txt').write_text(traceback.format_exc())
+        phase('restoration_failed', error=error, restoration_error=restore_error, completed_requests=len(runs))
+
+sys.exit(1 if error or restore_error else 0)

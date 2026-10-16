@@ -1,6 +1,6 @@
 # GLM Maya-M: prefill, context and GPU-order tuning
 
-Historical measurements from October 16, 2026 on the [mixed RTX 3090 / RTX 3060 / dual V100 host](../../../docs/hardware.md).
+Measurements and a later follow-up from October 16, 2026 on the [mixed RTX 3090 / RTX 3060 / dual V100 host](../../../docs/hardware.md).
 These trials explain the later agent benchmark's **prefill 2048 and physical GPU order `[2,0,1,3]`**.
 The model is GLM5.3 Flash Maya-M with mixed quantization, including IQ2_S experts, served by Project Maya.
 
@@ -21,9 +21,10 @@ The model is GLM5.3 Flash Maya-M with mixed quantization, including IQ2_S expert
 - Each row is an arithmetic mean of the saved per-request rates or wall times, rather than a pooled token/time rate.
   Displayed values are rounded; older saved summaries sometimes differ in their last digit because they round earlier.
 
-There are **18 unique measured requests** and **24 per-request JSON files**. Six files are byte-identical baseline copies reused in later comparisons.
+There are **21 unique measured requests** and **27 per-request JSON files**. Six files are byte-identical baseline copies reused in later comparisons.
 Those copies are not extra repetitions. The CSV deduplicates by file hash, since labels such as `M001` also appear in genuinely different context trials.
-Raw request records and recorded `summary.json` files are copied byte for byte. Config templates and archived Python text replace private home paths and bind addresses.
+Raw request records and the original seven `summary.json` files are copied byte for byte. The follow-up summary and metadata replace a private baseline path.
+Config templates and archived Python text also replace private home paths and bind addresses.
 The `.py.txt` files preserve the executed protocol, including historical service/config mutations; they are archival records, not current launch helpers.
 
 ## 1. First set prefill to 6144, then increase the context ceiling
@@ -110,6 +111,27 @@ This was a whole-placement change, not an isolated measurement of MTP execution 
 
 Ranges are zero-based and half-open. See the [candidate request maps](mtp-on-3090) and the [recorded rollback decision](mtp-on-3090/summary.json).
 The maps also show that layer distribution and expert-pool allocation changed with GPU order.
+
+## 6. Follow up with prefill 1024 on the final order
+
+After the original tuning and agent comparison, prefill 1024 was measured **exactly three times** with `[2,0,1,3]`, context 262144,
+FP16 KV and the retained MTP, vision and sampling settings. The comparison reused the three earlier 2048 requests from section 4;
+it added no warm-up or fresh 2048 requests. The service's request counter increased from zero to three.
+
+| Prefill | Evidence | Runs | Mean prompt tok/s | Mean decode tok/s | Mean total request time |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 1024 | New follow-up | 3 | 830.30 | 46.17 | 83.246 s |
+| 2048 | Historical same-order baseline | 3 | 937.97 | 45.33 | 74.979 s |
+
+1024 had about **11.5% lower prompt throughput**, **1.8% higher decode rate** and **11.0% longer mean total time** than that historical baseline.
+All runs used 59437 prompt tokens, generated 512 tokens and reported zero reused prompt tokens. The slower first 1024 request is included in the mean.
+The GLM config was restored to 2048, and the originally active Qwen service was restored with boot enablement unchanged.
+The [follow-up directory](followup-prefill1024-final-order/README.md) includes individual rates, runtime allocation counters,
+the actual engine command, config snapshots, source/binary fingerprints and restoration evidence.
+
+These measurements were taken at different times, with no counterbalancing of cache warmth, clocks or order.
+The 1024 follow-up belongs with the final-order 2048 baseline; adding it to section 2's earlier `[0,2,3,1]` sweep would change two factors at once.
+The original agent-quality suite still uses its recorded prefill 2048 deployment.
 
 ## What applies to another machine
 

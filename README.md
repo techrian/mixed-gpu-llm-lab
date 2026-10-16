@@ -1,5 +1,20 @@
 # Mixed GPU LLM Lab
 
+## Test hardware
+
+| Component | Recorded specification |
+| --- | --- |
+| CPU | Ryzen 7 9700X, 8 physical cores / 16 threads |
+| System RAM | 64 GB DDR5 class; 60.47 GiB visible to Linux |
+| Motherboard platform | B850 chipset, socket AM5 |
+| Compute GPUs | RTX 3090 24 GiB + RTX 3060 12 GiB + 2 × V100 32 GiB; **100 GiB total VRAM** |
+| GPU PCIe links | RTX 3090: Gen4 x16; RTX 3060: Gen4 x1; each V100: Gen3 x4 |
+| Storage | 2 TB class NVMe SSD |
+| Runtime | Ubuntu 24.04.5 LTS, CUDA 12.8, NVIDIA driver 580.178.04 |
+
+[Hardware details and GPU numbering](docs/hardware.md) · [curated specification snapshot](docs/hardware-specs.json).
+RAM module count, configured data rate and timings were not captured. Board and component-partner brands are omitted.
+
 ## Measured agent results — October 16, 2026
 
 **24 tasks × 3 repetitions × 2 deployed systems = 144 measured episodes**, on the same RTX 3090 + RTX 3060 + dual V100 PC.
@@ -184,8 +199,24 @@ All four rows used prefill 2048, context 262144, 59437 prompt tokens and 512 gen
 - Putting the RTX 3090 last with MTP, `[2,3,1,0]`, reduced mean decode rate about 12.1% versus the retained order, so it was reverted. This also changed base-layer distribution and expert allocation; it did not isolate MTP execution speed.
 
 These GPU-order measurements are for **GLM Maya-M**. The published Qwen throughput records use the fixed `[2,0,1,3]` order.
-The [complete GLM tuning history](benchmarks/throughput/glm-maya-m-20261016/README.md) includes 18 unique requests, reused-baseline provenance,
-historical configs, observed layer maps, the context-ceiling trials, a summary-construction error and the rollback decision.
+The [complete GLM tuning history](benchmarks/throughput/glm-maya-m-20261016/README.md) includes 21 unique requests, reused-baseline provenance,
+historical configs, observed layer maps, the context-ceiling trials, a summary-construction error, the rollback decision and the later 1024 follow-up below.
+
+### Follow-up: prefill 1024 on the final GLM order
+
+After the original tuning and agent comparison, **three new 1024 requests** were measured with the final `[2,0,1,3]` order.
+Context 262144, FP16 KV, MTP, resident vision and sampling defaults were retained. Each request used 59437 prompt tokens and generated 512 tokens,
+with zero prompt-cache reuse. No extra warm-up or fresh 2048 requests were added.
+
+| Prefill and evidence | Runs | Mean prompt tok/s | Mean decode tok/s | Mean total request time |
+| --- | ---: | ---: | ---: | ---: |
+| 1024, new follow-up | 3 | 830.30 | 46.17 | 83.246 s |
+| 2048, historical same-order baseline | 3 | 937.97 | 45.33 | 74.979 s |
+
+Relative to that historical baseline, **1024 had 11.5% lower prompt throughput, 1.8% higher decode rate and 11.0% longer mean total time**.
+All three runs, including the slower first request, are retained. This is a small sequential follow-up against earlier measurements, rather than a fresh alternating A/B test.
+The GLM configuration was restored to 2048; the original 144-episode agent results used 2048 and were not rerun for this follow-up.
+See the [individual requests, comparison and restoration record](benchmarks/throughput/glm-maya-m-20261016/followup-prefill1024-final-order/README.md).
 
 ### Hardware and experiment limits
 

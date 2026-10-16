@@ -28,7 +28,7 @@ The [main comparison](../../README.md) and [agent report](../../benchmarks/agent
 
 ## Why prefill 2048 and this GPU order
 
-The [published tuning history](../../benchmarks/throughput/glm-maya-m-20261016/README.md) includes 18 unique earlier throughput requests.
+The [published tuning history](../../benchmarks/throughput/glm-maya-m-20261016/README.md) includes 21 unique throughput requests, including the later 1024 follow-up.
 With the earlier `[0,2,3,1]` order, two requests per prefill value gave mean total times of 78.108 s at 2048,
 80.312 s at 4096, 85.993 s at 6144 and 93.361 s at 8192. The shortest mean time and highest mean prompt throughput selected 2048.
 
@@ -39,6 +39,11 @@ reduced mean decode rate to 39.87 tok/s and was reverted. The raw GPU maps show 
 These small sequential samples reflect the mixed PCIe topology and a roughly 59.4K-token synthetic prompt with 512 generated tokens.
 The prefill sweep preceded the order trials; every prefill/order combination and agent-task outcome was not measured.
 The report distinguishes each selection criterion and retains the unsuccessful attempt alongside the chosen configuration.
+
+A later [three-request 1024 follow-up](../../benchmarks/throughput/glm-maya-m-20261016/followup-prefill1024-final-order/README.md), at the final `[2,0,1,3]` order,
+averaged 830.30 prompt tok/s, 46.17 decode tok/s and 83.246 s total. The historical same-order 2048 baseline averaged 937.97,
+45.33 and 74.979 respectively. The slightly higher decode mean at 1024 accompanied a longer total time; the profile was restored to 2048.
+This follow-up added exactly three inference requests and did not repeat the agent-quality suite or create a fresh 2048 baseline.
 
 ## Prepare a separate installation
 

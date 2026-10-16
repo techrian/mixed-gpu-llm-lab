@@ -4,12 +4,13 @@ This directory contains the Qwen Strata measurements from October 14–15 and th
 It explains the retained prefill values and publishes the earlier GPU-order attempts on the same mixed GPU PC.
 
 - [Qwen prefill and later repeat results](#qwen-prefill-and-later-repeat-results): 22 unique requests, prefill 512–8192.
-- [GLM Maya-M prefill, context, GPU-order and MTP trials](glm-maya-m-20261016/README.md): 18 unique requests across seven historical collections.
+- [GLM Maya-M prefill, context, GPU-order and MTP trials](glm-maya-m-20261016/README.md): 21 unique requests across eight collections, including the later 1024 follow-up.
 - [Main results and configuration rationale](../../README.md#why-these-prefill-values-and-gpu-order-were-chosen).
 
 Timing JSON is copied byte for byte. Private paths and addresses are replaced in configuration snapshots and archival scripts.
 The Qwen scripts accept a configurable URL and output directory. GLM's original runners are archived as text, with their historical mutations and errors retained.
-The tables are derived from existing records; publishing this history did not run new inference.
+The original history was exported from existing records without repeating its measurements.
+The later 1024 follow-up added exactly three new inference requests at the owner's request; the old measurements and agent suite were retained.
 
 ## Qwen prefill and later repeat results
 
@@ -82,6 +83,9 @@ comparison can still be reviewed. Small last-digit differences in older prose ta
 3. Change physical order from `[0,2,3,1]` to `[0,2,1,3]`, moving MTP/output from the RTX 3060 to a V100.
 4. Retain `[2,0,1,3]` for its slightly higher mean decode rate, while documenting its longer mean total time than `[0,2,1,3]`.
 5. Try `[2,3,1,0]` with MTP/output on the RTX 3090; restore the preceding order after the mean decode rate decreased.
+6. After the agent comparison, measure 1024 exactly three times at the final `[2,0,1,3]` order. Against the historical same-order 2048 baseline,
+   mean prompt throughput was 830.30 versus 937.97 tok/s, decode 46.17 versus 45.33 tok/s, and total time 83.246 versus 74.979 s.
+   The configuration was restored to 2048. [Follow-up records and method](glm-maya-m-20261016/followup-prefill1024-final-order/README.md).
 
 The GLM order comparisons reused earlier baselines; the prefill sweep preceded the final order selection.
 These experiments did not cover every prefill/order combination or repeat the agent-quality suite for every candidate.
