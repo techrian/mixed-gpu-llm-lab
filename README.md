@@ -21,6 +21,7 @@ RAM module count, configured data rate and timings were not captured. Board and 
 
 | Metric | Qwen3.8 Flash Next Uncensored Q4_K_M | GLM5.3 Flash Maya-M |
 | --- | ---: | ---: |
+| Main model weights (3 GGUF shards) | 119.15 GB (110.97 GiB) | 116.00 GB (108.04 GiB) |
 | Complete task success | **69/72 · 95.8%** | **69/72 · 95.8%** |
 | Assistant-role weighted score | 96.7% | 95.8% |
 | Tasks passed in all three repetitions | 21/24 | **22/24** |
@@ -29,6 +30,8 @@ RAM module count, configured data rate and timings were not captured. Board and 
 | Successful-episode p95 | **42.38 s** | 48.59 s |
 | Native tool argument/schema validity | 98.0% · 399/407 | **99.1% · 325/328** |
 | Mean tool calls per episode | 5.65 | **4.56** |
+
+Main model sizes sum the three recorded weight shards (decimal GB); they exclude the separate F16 vision encoder: **0.91 GB** for Qwen and **1.13 GB** for GLM.
 
 **On the 67 matched episodes both systems completed successfully, Qwen's geometric mean completion time was 13.0% shorter.**
 The Qwen/GLM time ratio was **0.870**, with a paired task-cluster bootstrap 95% interval of **0.806–0.943**.
