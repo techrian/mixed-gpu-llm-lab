@@ -1,0 +1,58 @@
+{
+  "model": "iq3s",
+  "task_id": "M01",
+  "title": "Small Python timezone bug fix",
+  "category": "Maintenance",
+  "trial": 2,
+  "ordinal": 36,
+  "success": true,
+  "partial_score": 1.0,
+  "checks": [
+    {
+      "check": "hidden behavior checks",
+      "passed": true
+    },
+    {
+      "check": "visible tests actually run",
+      "passed": true
+    },
+    {
+      "check": "test and unrelated files preserved",
+      "passed": true
+    },
+    {
+      "check": "final response returned",
+      "passed": true
+    }
+  ],
+  "wall_s": 31.1829,
+  "first_tool_s": 3.5019710619999387,
+  "llm_s": 30.740605313000742,
+  "tool_s": 0.42208740299975034,
+  "turns": 8,
+  "tool_calls": 9,
+  "schema_valid_calls": 9,
+  "tool_errors": 0,
+  "injected_faults": 0,
+  "multi_call_batches": 2,
+  "ttft_s": [
+    2.215261805999944,
+    1.189817294999557,
+    0.8735949370002345,
+    0.7518235070001538,
+    0.307207023999581,
+    0.39334454700019705,
+    2.1625519970002642,
+    1.3458444369998688
+  ],
+  "stop_reason": "final_response",
+  "usage": {
+    "prompt_tokens": 16924,
+    "completion_tokens": 1989,
+    "cached_prompt_tokens": 14349
+  },
+  "errors": [],
+  "final_response": "`timeutil.py`의 `as_utc` 버그를 수정했습니다.\n\n**원인:** `datetime.fromisoformat(text).replace(tzinfo=timezone.utc)`는 파싱된 오프셋을 *덮어써서*(`replace`는 변환이 아닌 치환), `+09:00` 같은 값을 같은 벽시각 그대로 UTC로 취급했습니다.\n\n**수정 내용 (`/work/timeutil.py`):**\n- 오프셋이 있는 입력 → `astimezone(timezone.utc)`로 실제 순간(instant)을 보존해 UTC로 변환\n- naive 입력(또는 `utcoffset()`이 None) → 기존 계약대로 UTC로 가정 (`replace`)\n- `Z`/`z` 접미사는 `+00:00`로 정규화하여 구버전 Python에서도 동작\n- 공개 인터페이스 유지: 시그니처 `as_utc(text)`, docstring, \"aware UTC datetime 반환\" 계약 그대로 (str 외 datetime 입력도 동작)\n\n**검증:**\n```\n$ python3 test_visible.py\nvisible tests PASS\n```\n추가 확인 케이스도 모두 통과 — `+09:00`→00:00Z, `-05:30`→05:30Z, `+09`(초생략), 소수초+오프셋, 날짜만(`2026-10-16`), naive→UTC, 서로 다른 오프셋 표현이 동일한 순간으로 비교됨.\n\n`test_visible.py`와 `KEEP.txt`(\"Do not modify this file\")는 변경하지 않았습니다.",
+  "run_path": "runs/iq3s/M01-r2",
+  "failed_checks": []
+}

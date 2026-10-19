@@ -1,0 +1,55 @@
+{
+  "model": "iq3s",
+  "task_id": "D02",
+  "title": "SQLite join and aggregation",
+  "category": "Files and evidence",
+  "trial": 1,
+  "ordinal": 15,
+  "success": true,
+  "partial_score": 1.0,
+  "checks": [
+    {
+      "check": "correct sorted SQL aggregate export",
+      "passed": true
+    },
+    {
+      "check": "database unchanged",
+      "passed": true
+    },
+    {
+      "check": "export checked",
+      "passed": true
+    },
+    {
+      "check": "final response returned",
+      "passed": true
+    }
+  ],
+  "wall_s": 19.1914,
+  "first_tool_s": 3.1505827949995364,
+  "llm_s": 18.521438150001813,
+  "tool_s": 0.6585615680005503,
+  "turns": 5,
+  "tool_calls": 6,
+  "schema_valid_calls": 6,
+  "tool_errors": 1,
+  "injected_faults": 0,
+  "multi_call_batches": 2,
+  "ttft_s": [
+    2.2069529959999272,
+    1.026187329000095,
+    0.8950294790001863,
+    0.8690558030002649,
+    0.9542714210001577
+  ],
+  "stop_reason": "final_response",
+  "usage": {
+    "prompt_tokens": 7302,
+    "completion_tokens": 1150,
+    "cached_prompt_tokens": 5841
+  },
+  "errors": [],
+  "final_response": "Done. `/work/regional.csv` was created and verified.\n\n**Source data (read-only access, `file:billing.sqlite?mode=ro`)**\n- `customers(id, region)`: A→APAC, B→EMEA, C→APAC\n- `invoices(id, customer_id, amount_cents, status)`: 4 rows — 3 `paid` (16,500¢ total), 1 `pending` (9,000¢, correctly excluded)\n- No orphan invoices (0 invoices with a `customer_id` missing from `customers`)\n\n**Query used**\n```sql\nSELECT c.region, SUM(i.amount_cents), COUNT(i.id)\nFROM invoices i JOIN customers c ON c.id = i.customer_id\nWHERE i.status = 'paid'\nGROUP BY c.region\nORDER BY c.region ASC;\n```\n\n**Exported `/work/regional.csv`** (58 bytes, header + 2 rows)\n```\nregion,total_cents,invoice_count\nAPAC,12500,2\nEMEA,4000,1\n```\n\n**Verification**\n- Re-ran the query independently via Python (read-only connection) and diffed against the parsed CSV: header matches `region,total_cents,invoice_count`, all data rows match, and rows are ascending by region.\n- Database untouched: `md5sum billing.sqlite` identical before and after (`e077555c732eb71be89e5afdfc50bd9c`); no schema/data changes made.",
+  "run_path": "runs/iq3s/D02-r1",
+  "failed_checks": []
+}

@@ -15,49 +15,49 @@
 [Hardware details and GPU numbering](docs/hardware.md) · [curated specification snapshot](docs/hardware-specs.json).
 RAM module count, configured data rate and timings were not captured. Board and component-partner brands are omitted.
 
-## Measured agent results — October 16, 2026
+## Measured agent results — October 16 and 19, 2026
 
-**24 tasks × 3 repetitions × 2 deployed systems = 144 measured episodes**, on the same RTX 3090 + RTX 3060 + dual V100 PC.
+**24 tasks × 3 repetitions × 3 deployed configurations = 216 measured episodes** on the same RTX 3090 + RTX 3060 + dual V100 PC. The Qwen Q4 and GLM runs were measured October 16 using all four GPUs; the IQ3_S run was measured October 19 using only the two V100 GPUs. All three used the same task suite and final grader.
 
-| Metric | Qwen3.8 Flash Next Uncensored Q4_K_M | GLM5.3 Flash Maya-M |
-| --- | ---: | ---: |
-| Main model weights (3 GGUF shards) | 119.15 GB (110.97 GiB) | 116.00 GB (108.04 GiB) |
-| Complete task success | **69/72 · 95.8%** | **69/72 · 95.8%** |
-| Assistant-role weighted score | 96.7% | 95.8% |
-| Tasks passed in all three repetitions | 21/24 | **22/24** |
-| Successful completions/hour, failed time included | **161.6** | 141.3 |
-| Successful-episode median | **20.25 s** | 21.19 s |
-| Successful-episode p95 | **42.38 s** | 48.59 s |
-| Native tool argument/schema validity | 98.0% · 399/407 | **99.1% · 325/328** |
-| Mean tool calls per episode | 5.65 | **4.56** |
+| Metric | Qwen3.8 Flash-Next Uncensored Q4_K_M | GLM-5.3 Flash Maya-M | Qwen3.8 Flash-Next GSQ-RCO IQ3_S |
+| --- | ---: | ---: | ---: |
+| Recorded model GGUF files, vision encoder excluded | 119.15 GB (110.97 GiB) | 116.00 GB (108.04 GiB) | 83.62 GB (77.88 GiB) |
+| Complete task success | **69/72 · 95.8%** | **69/72 · 95.8%** | 66/72 · 91.7% |
+| Assistant-role weighted score | **96.7%** | 95.8% | 90.0% |
+| Tasks passed in all three repetitions | 21/24 | **22/24** | 20/24 |
+| Successful tasks/hour, failed time included | 161.6 | 141.3 | **169.5** |
+| Successful-episode median | 20.25 s | 21.19 s | **16.79 s** |
+| Successful-episode p95 | 42.38 s | 48.59 s | **38.55 s** |
+| Native tool argument/schema validity | 98.0% · 399/407 | 99.1% · 325/328 | **99.8% · 458/459** |
+| Mean tool calls per episode | 5.65 | **4.56** | 6.38 |
 
-Main model sizes sum the three recorded weight shards (decimal GB); they exclude the separate F16 vision encoder: **0.91 GB** for Qwen and **1.13 GB** for GLM.
+The separate vision encoders were 0.91 GB for both Qwen configurations and 1.13 GB for GLM. GGUF size is not a measure of required runtime memory.
 
-**On the 67 matched episodes both systems completed successfully, Qwen's geometric mean completion time was 13.0% shorter.**
-The Qwen/GLM time ratio was **0.870**, with a paired task-cluster bootstrap 95% interval of **0.806–0.943**.
+In the original Qwen Q4 vs GLM comparison, both passed 67 matched episodes; Qwen's geometric mean completion time on those pairs was 13.0% shorter (time ratio 0.870, paired task-cluster bootstrap 95% interval 0.806–0.943). The IQ3_S results and three-model workbook are linked below.
 
-[**Excel workbook — 14 sheets**](benchmarks/agent-comparison/2026-10-16/AgentBenchmark_Qwen38_vs_GLM53.xlsx) ·
-[Method, categories and failures](benchmarks/agent-comparison/2026-10-16/README.md) ·
-[Machine-readable statistics](benchmarks/agent-comparison/2026-10-16/summary_stats.json) ·
-[Complete execution records](benchmarks/agent-comparison/2026-10-16/runs)
+[**Three-model Excel comparison**](benchmarks/agent-comparison/2026-10-19-iq3s/AgentBenchmark_Three_Model_Comparison.xlsx) ·
+[Three-model findings, task failures and configuration](benchmarks/agent-comparison/2026-10-19-iq3s/README.md) ·
+[Machine-readable three-model statistics](benchmarks/agent-comparison/2026-10-19-iq3s/comparison.json) ·
+[IQ3_S execution records](benchmarks/agent-comparison/2026-10-19-iq3s/runs/iq3s) ·
+[Original Qwen/GLM report and workbook](benchmarks/agent-comparison/2026-10-16/README.md)
 
 ## What the results show
 
-- **Overall completion accuracy was equal in this suite.** The role-weighted point estimate favored Qwen by 0.83 percentage points, but its 95% interval was −0.83 to +3.33 points. This workload does not establish a quality winner.
-- **Qwen completed the matched successful work sooner.** Useful throughput was 14.4% higher when time spent on failures was included. These are full task times: reasoning, tool calls, tool execution, retries and the final response.
-- **GLM used fewer tool calls and produced valid tool arguments more consistently.** It also passed all three repetitions on one more task. Extra calls can include legitimate verification, recovery or redundant work; the complete traces show which occurred.
-- **Workload matters.** In the context/instruction category, mean episode times were 22.8 s for Qwen and 41.0 s for GLM. GLM had lower mean times in files/evidence and small maintenance work. Category-level results are below and in the workbook.
+- **Qwen Q4 and GLM had equal strict success** at 69/72 episodes. Their role-weighted point estimates differed by 0.83 percentage points, with an interval spanning no difference; this suite does not establish a quality winner between them.
+- **IQ3_S passed 66/72 episodes.** Its role-weighted score was 6.7 points below Qwen Q4 and 5.8 points below GLM. Paired task-cluster bootstrap intervals reach zero, so this small suite gives suggestive rather than conclusive evidence of lower task success.
+- **IQ3_S had the fastest observed successful-task throughput and median completion time.** It ran on two V100 GPUs only; the Q4 and GLM baselines used all four GPUs. These timing results describe the deployed setups and do not isolate model-only speed.
+- **The IQ3_S and Q4 checkpoints are not a controlled quantization pair.** Qwen Q4 came from ORCArouter's Uncensored checkpoint, while IQ3_S came from ISTA-DASLab's GSQ-RCO checkpoint. The score difference cannot be attributed to quantization alone.
+- **Tool use varied by metric.** IQ3_S had the highest valid tool-call schema rate, while it averaged more calls per episode than Qwen Q4 or GLM. The saved traces show task execution, verification and errors.
 
-These observations describe two actual deployment stacks, including different quantizations, prefill sizes, KV residency and MTP implementations.
-They do not isolate base-model intelligence or establish a universal ranking. Use the task definitions, failures, settings and traces to decide which tradeoffs fit your work.
+These observations describe three actual deployment stacks, including different checkpoints, quantizations, GPU allocations, prefill and KV settings. They do not isolate base-model intelligence or establish a universal ranking. Use the task definitions, failures, settings and traces to judge which tradeoffs fit your work.
 
 ### Reasoning settings and observed token use
 
-**Both models had thinking enabled. Qwen used its chat template's default `xhigh`; GLM used the configured `high`.**
+**In the October 16 Qwen Q4/GLM comparison, thinking was enabled. Qwen used its chat template's default `xhigh`; GLM used the configured `high`.**
 The benchmark requests omitted reasoning-effort overrides. Qwen's highest template level is `xhigh`; GLM also offers `max`, which was not measured here.
 These level names are specific to each model and do not imply equal reasoning work.
 
-| Setting or observation | Qwen | GLM |
+| October 16 setting or observation | Qwen Q4 | GLM |
 | --- | ---: | ---: |
 | Effective reasoning effort | `xhigh`, template default | `high`, server default |
 | Total generation limit per request | 4096 tokens | 4096 tokens |
@@ -70,14 +70,13 @@ Completion counts include reasoning, answer text and generated tool calls; they 
 **GLM's reasoning cap was never reached:** even its largest total completion, 772 tokens, was below the 3072-token reasoning cap.
 The saved records therefore provide no evidence that this cap cut GLM's reasoning short in this suite.
 
-The comparison retains each deployment's reasoning settings. The effect of raising GLM from `high` to `max` on success and completion time remains unmeasured.
-A comparison of both models at their highest reasoning settings would require a separate run with sufficient, matching generation and reasoning budgets.
+For IQ3_S, benchmark requests also omitted reasoning-effort overrides; the runner set a 4096-token output limit per request. Its template effort was not separately audited. The October 16 comparison retains each deployment's reasoning settings. The effect of raising GLM from `high` to `max` on success and completion time remains unmeasured.
+A comparison of Qwen Q4 and GLM at their highest reasoning settings would require a separate run with sufficient, matching generation and reasoning budgets.
 See the [reasoning audit and evidence](benchmarks/agent-comparison/2026-10-16/README.md#reasoning-settings-and-token-limits) for the budget calculation and request records.
 
-### Where only one model succeeded
+### Where the October 16 Qwen Q4 and GLM runs differed
 
-Of the **72 matching task/repetition pairs**, both models passed 67, only Qwen passed 2, only GLM passed 2, and both failed 1.
-The four pairs with different outcomes were:
+Of their **72 matching task/repetition pairs**, both models passed 67, only Qwen passed 2, only GLM passed 2, and both failed 1. The four pairs with different outcomes are shown below. IQ3_S failures and matched outcomes are listed separately in the [October 19 three-model report](benchmarks/agent-comparison/2026-10-19-iq3s/README.md).
 
 | Episode | Required work | Qwen | GLM |
 | --- | --- | --- | --- |
@@ -96,16 +95,18 @@ See the [paired-case explanations and complete response traces](benchmarks/agent
 
 ### Category results
 
-Each category contains four tasks, repeated three times per system. Times include all attempts.
+Each category contains four tasks, repeated three times per system. Mean times include all 12 attempts per model, including failures.
 
-| Category | Role weight | Qwen passes | GLM passes | Qwen mean time | GLM mean time |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Tool contracts | 15% | 11/12 | 10/12 | 9.23 s | 10.70 s |
-| Business workflows | 25% | 12/12 | 12/12 | 22.68 s | 26.43 s |
-| Files and evidence | 20% | 11/12 | 11/12 | 29.47 s | 25.74 s |
-| Recovery and verification | 20% | 12/12 | 12/12 | 19.03 s | 21.41 s |
-| Context and instruction | 15% | 12/12 | 12/12 | 22.82 s | 41.03 s |
-| Small maintenance tasks | 5% | 11/12 | 12/12 | 24.87 s | 21.18 s |
+| Category | Role weight | Qwen Q4 passes | GLM passes | IQ3_S passes | Qwen Q4 mean time | GLM mean time | IQ3_S mean time |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Tool contracts | 15% | 11/12 | 10/12 | 10/12 | 9.23 s | 10.70 s | 7.01 s |
+| Business workflows | 25% | 12/12 | 12/12 | 10/12 | 22.68 s | 26.43 s | 22.06 s |
+| Files and evidence | 20% | 11/12 | 11/12 | 10/12 | 29.47 s | 25.74 s | 24.41 s |
+| Recovery and verification | 20% | 12/12 | 12/12 | 12/12 | 19.03 s | 21.41 s | 14.85 s |
+| Context and instruction | 15% | 12/12 | 12/12 | 12/12 | 22.82 s | 41.03 s | 23.86 s |
+| Small maintenance tasks | 5% | 11/12 | 12/12 | 12/12 | 24.87 s | 21.18 s | 24.65 s |
+
+IQ3_S category means are calculated from the 72 published episode records. The [October 19 report](benchmarks/agent-comparison/2026-10-19-iq3s/README.md) includes task-level counts and traces.
 
 ### Scope and limitations
 
@@ -113,33 +114,34 @@ This is a **custom, controlled OpenAI-native agent loop inspired by Hermes-style
 Business APIs and knowledge pages are deterministic fixtures; files, SQLite and Python/Node execution are real isolated tasks.
 Each task exposes 3–8 tools and has a 180-second, 12-turn budget. There is no commercial LLM judge.
 
-The Korean wording of one quote task (D03) admits two interpretations. The frozen target is one quote for 100 units; both models produced a 100-quote list in one repetition.
-Excluding that item, both systems scored **67/69 · 97.1%**. The workbook reports this sensitivity separately.
+The Korean wording of one quote task (D03) admits two interpretations. The frozen target is one quote for 100 units; Qwen Q4 and GLM each produced a 100-quote list in one repetition.
+For the October 16 Qwen/GLM pair, excluding that item, both systems scored **67/69 · 97.1%**. The workbook reports this sensitivity separately.
 Other strict failures were bare-JSON formatting (Qwen once, GLM twice) and an empty final API response after correct code changes (Qwen once).
-All 144 saved episodes were audited with the same final grader; [grading corrections and original verdicts](benchmarks/agent-comparison/2026-10-16/grading-audit.json) are retained.
+The 144 October 16 Qwen/GLM episodes and the 72 October 19 IQ3_S episodes use the same final grader hash. The October 16 [grading corrections and original verdicts](benchmarks/agent-comparison/2026-10-16/grading-audit.json) are retained.
 
 Three repeats of 24 authored tasks are a limited sample. Image understanding, real accounts, browser/GUI work, a production-sized tool catalog, maximum-context saturation and long unattended operation were not evaluated.
-GLM ran before Qwen on one host; model order was not counterbalanced. These are not official BFCL, tau-bench, Terminal-Bench or Hermes leaderboard scores.
+GLM ran before Qwen on one host; the October 16 pair was not counterbalanced. IQ3_S was measured separately on October 19. These are not official BFCL, tau-bench, Terminal-Bench or Hermes leaderboard scores.
 
 ## Recorded deployments
 
-| Setting | Qwen profile | GLM profile |
-| --- | --- | --- |
-| Model | OrcaRouter Qwen3.8 Flash Next Uncensored, Q4_K_M | Peasant Smith GLM5.3 Flash Maya-M, mixed quantization with IQ2_S experts |
-| Engine | [Niko1221/Strata](https://github.com/Niko1221/Strata), 0.1.43.1, `a0116b2` | [mw00/project-maya](https://github.com/mw00/project-maya), 1.1.11, `362671a` |
-| Context ceiling | 262144 | 262144 |
-| Prefill chunk | 6144 | 2048 |
-| KV | FP16, GPU-resident configuration | FP16, streaming with 32768 resident positions |
-| GPU order, physical indices | `[2,0,1,3]` | `[2,0,1,3]` |
-| Base-layer ranges, half-open | `[0,16) / [16,29) / [29,33) / [33,48)` | `[0,16) / [16,27) / [27,31) / [31,45)` observed auto split |
-| Experts | All 24576 cache slots; prefill borrows slots with RAM backing | 10102 VRAM slots including slack; remaining experts in pinned RAM, disk eviction off |
-| MTP | Qwen native draft, `--spec 4 --spec-min-p 0.5` | GLM MTP, enabled |
-| Reasoning effort | `xhigh`, chat-template default | `high`, configured server default |
-| Vision | F16 encoder on physical GPU 2 | F16 encoder on physical GPU 2 |
-| Process swap | `MemorySwapMax=0` | `MemorySwapMax=0` |
+| Setting | Qwen Q4 profile | GLM Maya-M profile | Qwen IQ3_S profile |
+| --- | --- | --- | --- |
+| Model and source | OrcaRouter Qwen3.8 Flash-Next Uncensored, Q4_K_M | Peasant Smith GLM-5.3 Flash Maya-M, mixed quantization with IQ2_S experts | ISTA-DASLab Qwen3.8 Flash-Next GSQ-RCO, IQ3_S |
+| Engine | [Niko1221/Strata](https://github.com/Niko1221/Strata), 0.1.43.1, a0116b2 | [mw00/project-maya](https://github.com/mw00/project-maya), 1.1.11, 362671a | [Niko1221/Strata](https://github.com/Niko1221/Strata), 0.1.43.1, a0116b2 |
+| Context ceiling | 262144 | 262144 | 262144 |
+| Prefill chunk | 6144 | 2048 | Automatic |
+| KV | FP16, GPU-resident configuration | FP16, streaming with 32768 resident positions | INT8 |
+| GPU order, physical indices | [2,0,1,3] | [2,0,1,3] | [2,3] |
+| Base-layer placement | [0,16) / [16,29) / [29,33) / [33,48) | [0,16) / [16,27) / [27,31) / [31,45), observed auto split | Automatic split across the two V100 GPUs; exact layer ranges not retained |
+| Expert cache | 24576 cache slots; prefill borrows slots with RAM backing | 10102 VRAM slots including slack; remaining experts in pinned RAM, disk eviction off | 24346 reported cache slots out of 24576 profiled pairs; 47478 MiB reported cache, including 12800 primary slots |
+| MTP | Qwen native draft, spec 4, minimum probability 0.5 | GLM MTP enabled | MTP enabled, spec 4, minimum probability 0.5 |
+| Reasoning effort | xhigh, chat-template default | high, configured server default | No request-level override; template default was not separately audited |
+| Vision | F16 encoder on physical GPU 2 | F16 encoder on physical GPU 2 | BF16 vision encoder enabled; evaluation tasks were text-only |
+| Process swap | MemorySwapMax=0 | MemorySwapMax=0 | MemorySwapMax=0 |
 
-Both used API defaults temperature 1.0, top_p 0.95, top_k 20 and min_p 0.0. Reasoning settings and observed token use are detailed above.
-Vision was loaded during measurement, but the agent tasks were text-only. MTP ran on the last V100 in both recorded layouts.
+The IQ3_S slot ratio is 24346/24576, about 99.1% of profiled cache slots. It is not a byte-weight residency guarantee. The RTX 3090 and RTX 3060 were unused during that evaluation. See the [deployment record](benchmarks/agent-comparison/2026-10-19-iq3s/deployment.json) for the full IQ3_S snapshot.
+
+All three used API defaults temperature 1.0, top_p 0.95, top_k 20 and min_p 0.0. The reasoning settings and observed token usage for the Qwen Q4/GLM pair are detailed above. Vision was enabled during the evaluations, but agent tasks were text-only. GPU and MTP placement differed by configuration.
 
 ## Why these prefill values and GPU order were chosen
 
@@ -238,7 +240,8 @@ The agent suite was also not repeated for each tuning candidate. Different hardw
 - [Hardware and physical GPU/CUDA mapping](docs/hardware.md)
 - [Persistent services and manual model switching](docs/services.md)
 - [Upstream community PR and hardware report](docs/upstream-contributions.md)
-- [Agent task definitions, scoring and reproduction](benchmarks/agent-comparison/2026-10-16/README.md)
+- [Three-model agent results, IQ3_S task traces and deployment](benchmarks/agent-comparison/2026-10-19-iq3s/README.md)
+- [Qwen Q4 vs GLM agent task definitions, scoring and reproduction](benchmarks/agent-comparison/2026-10-16/README.md)
 - [Prefill, GPU-order and MTP tuning history](benchmarks/throughput/README.md)
 - [Upstream sources and licenses](THIRD_PARTY_NOTICES.md)
 

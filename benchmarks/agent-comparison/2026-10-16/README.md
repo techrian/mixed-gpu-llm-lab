@@ -1,5 +1,7 @@
 # Local assistant agent comparison — 2026-10-16
 
+Follow-up: the same task suite was later used to evaluate Qwen Flash-Next GSQ-RCO IQ3_S on two V100 GPUs. See the [three-model results and task traces](../2026-10-19-iq3s/README.md).
+
 | Metric | Qwen Q4_K_M / Strata 0.1.43.1 | GLM Maya-M / Project Maya 1.1.11 |
 | --- | ---: | ---: |
 | Complete success | 69/72 · 95.8% | 69/72 · 95.8% |

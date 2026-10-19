@@ -1,0 +1,58 @@
+{
+  "model": "iq3s",
+  "task_id": "M01",
+  "title": "Small Python timezone bug fix",
+  "category": "Maintenance",
+  "trial": 1,
+  "ordinal": 7,
+  "success": true,
+  "partial_score": 1.0,
+  "checks": [
+    {
+      "check": "hidden behavior checks",
+      "passed": true
+    },
+    {
+      "check": "visible tests actually run",
+      "passed": true
+    },
+    {
+      "check": "test and unrelated files preserved",
+      "passed": true
+    },
+    {
+      "check": "final response returned",
+      "passed": true
+    }
+  ],
+  "wall_s": 35.7343,
+  "first_tool_s": 2.8776703379999162,
+  "llm_s": 35.25423790400055,
+  "tool_s": 0.46027774999765825,
+  "turns": 8,
+  "tool_calls": 10,
+  "schema_valid_calls": 10,
+  "tool_errors": 0,
+  "injected_faults": 0,
+  "multi_call_batches": 3,
+  "ttft_s": [
+    2.2430870689995572,
+    1.2022440099999585,
+    0.8801715080007853,
+    1.284965216999808,
+    0.30907972999921185,
+    1.6389059829998587,
+    0.29750223599967285,
+    1.537327643000026
+  ],
+  "stop_reason": "final_response",
+  "usage": {
+    "prompt_tokens": 20245,
+    "completion_tokens": 2521,
+    "cached_prompt_tokens": 17579
+  },
+  "errors": [],
+  "final_response": "`timeutil.py`의 `as_utc` 버그를 수정했습니다.\n\n**원인:** `datetime.fromisoformat(text).replace(tzinfo=timezone.utc)`는 offset이 있는 입력의 벽시계 시간을 그대로 두고 타임존만 UTC로 덮어썼습니다(예: `09:00+09:00` → `09:00+00:00`, 9시간 오차).\n\n**수정 내용:**\n- offset이 있는 입력 → `astimezone(timezone.utc)`로 실제 순간(Instant)을 UTC로 변환\n- naive 입력 → 기존대로 UTC로 가정 (`replace(tzinfo=timezone.utc)`)\n- 공개 인터페이스 유지: 시그니처 `as_utc(text)`, 반환 타입 aware UTC `datetime`, docstring 동일\n- 구버전 Python 호환을 위해末尾 `Z`/`z` fallback 추가(3.12에서는 불필요하지만 안전), 잘못된 입력은 그대로 `ValueError` 전파\n\n**검증 결과:**\n- `python3 test_visible.py` → `visible tests PASS`\n- 추가 확인: `09:00+09:00 → 00:00Z`, `09:00-03:30 → 12:30Z`, `23:30+05:30 → 18:00Z`, naive `09:00 → 09:00Z`, `Z`/`z` 모두 `utcoffset()==0`, 잘못된 입력은 `ValueError` 유지\n- `KEEP.txt`, `test_visible.py`는 변경하지 않음(md5 확인)",
+  "run_path": "runs/iq3s/M01-r1",
+  "failed_checks": []
+}

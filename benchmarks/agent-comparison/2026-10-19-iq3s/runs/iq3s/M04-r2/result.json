@@ -1,0 +1,59 @@
+{
+  "model": "iq3s",
+  "task_id": "M04",
+  "title": "Retry policy maintenance with edge cases",
+  "category": "Maintenance",
+  "trial": 2,
+  "ordinal": 30,
+  "success": true,
+  "partial_score": 1.0,
+  "checks": [
+    {
+      "check": "hidden behavior checks",
+      "passed": true
+    },
+    {
+      "check": "visible tests actually run",
+      "passed": true
+    },
+    {
+      "check": "test and unrelated files preserved",
+      "passed": true
+    },
+    {
+      "check": "final response returned",
+      "passed": true
+    }
+  ],
+  "wall_s": 31.4996,
+  "first_tool_s": 2.8491020930005106,
+  "llm_s": 30.838643106000745,
+  "tool_s": 0.6363014129992735,
+  "turns": 9,
+  "tool_calls": 11,
+  "schema_valid_calls": 11,
+  "tool_errors": 0,
+  "injected_faults": 0,
+  "multi_call_batches": 3,
+  "ttft_s": [
+    2.2096253170002456,
+    1.1890223230002448,
+    0.796323313999892,
+    0.30462264899961156,
+    0.3034978579999006,
+    1.0500634410000202,
+    1.1742310390000057,
+    1.062742435000473,
+    0.4478272530004688
+  ],
+  "stop_reason": "final_response",
+  "usage": {
+    "prompt_tokens": 20489,
+    "completion_tokens": 2113,
+    "cached_prompt_tokens": 18498
+  },
+  "errors": [],
+  "final_response": "Patched `/work/retry_policy.py` to enforce its documented contract, keeping the signature `should_retry(method, status, attempt)`:\n\n```python\ndef should_retry(method,status,attempt):\n    \"\"\"Retry GET/HEAD only, on 429 or 503, and only while attempt < 3. attempt starts at 1.\"\"\"\n    if not isinstance(method, str) or method.upper() not in (\"GET\", \"HEAD\"):\n        return False\n    if status not in (429, 503):\n        return False\n    try:\n        return attempt < 3\n    except TypeError:\n        return False\n```\n\nThe old body (`return status >= 500`) ignored method and attempt and wrongly retried 500/502/504.\n\nVerification:\n- `python3 test_visible.py` → `visible tests PASS`\n- 34/34 additional edge cases passed, including: case-insensitive `get`/`Head`/`hEaD` accepted; `POST/PUT/DELETE/PATCH/OPTIONS/TRACE` rejected; 429 and 503 accepted, 500/502/504/404/400/200/None/`\"429\"` rejected; attempt 1–2 retried, 3 and 4 rejected, 0 retried (contract is `attempt < 3`); `None`/non-string method and `None`/string attempt return `False` instead of raising.\n- `python3 -m py_compile` clean; `KEEP.txt` and `test_visible.py` untouched; generated `__pycache__` removed.",
+  "run_path": "runs/iq3s/M04-r2",
+  "failed_checks": []
+}
