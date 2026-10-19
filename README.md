@@ -70,7 +70,7 @@ Completion counts include reasoning, answer text and generated tool calls; they 
 **GLM's reasoning cap was never reached:** even its largest total completion, 772 tokens, was below the 3072-token reasoning cap.
 The saved records therefore provide no evidence that this cap cut GLM's reasoning short in this suite.
 
-For IQ3_S, benchmark requests also omitted reasoning-effort overrides; the runner set a 4096-token output limit per request. Its template effort was not separately audited. The October 16 comparison retains each deployment's reasoning settings. The effect of raising GLM from `high` to `max` on success and completion time remains unmeasured.
+For IQ3_S, benchmark requests also omitted reasoning-effort overrides. An audit of its loaded chat template confirms the default is `xhigh`, matching Qwen Q4. Each request had a 4096-token total output limit covering reasoning, answer text and tool calls, with no separate reasoning-token cap. The October 16 comparison retains each deployment's reasoning settings. The effect of raising GLM from `high` to `max` on success and completion time remains unmeasured.
 A comparison of Qwen Q4 and GLM at their highest reasoning settings would require a separate run with sufficient, matching generation and reasoning budgets.
 See the [reasoning audit and evidence](benchmarks/agent-comparison/2026-10-16/README.md#reasoning-settings-and-token-limits) for the budget calculation and request records.
 
@@ -135,7 +135,7 @@ GLM ran before Qwen on one host; the October 16 pair was not counterbalanced. IQ
 | Base-layer placement | [0,16) / [16,29) / [29,33) / [33,48) | [0,16) / [16,27) / [27,31) / [31,45), observed auto split | Automatic split across the two V100 GPUs; exact layer ranges not retained |
 | Expert cache | 24576 cache slots; prefill borrows slots with RAM backing | 10102 VRAM slots including slack; remaining experts in pinned RAM, disk eviction off | 24346 reported cache slots out of 24576 profiled pairs; 47478 MiB reported cache, including 12800 primary slots |
 | MTP | Qwen native draft, spec 4, minimum probability 0.5 | GLM MTP enabled | MTP enabled, spec 4, minimum probability 0.5 |
-| Reasoning effort | xhigh, chat-template default | high, configured server default | No request-level override; template default was not separately audited |
+| Reasoning effort | xhigh, chat-template default | high, configured server default | xhigh, chat-template default; no request-level override |
 | Vision | F16 encoder on physical GPU 2 | F16 encoder on physical GPU 2 | BF16 vision encoder enabled; evaluation tasks were text-only |
 | Process swap | MemorySwapMax=0 | MemorySwapMax=0 | MemorySwapMax=0 |
 

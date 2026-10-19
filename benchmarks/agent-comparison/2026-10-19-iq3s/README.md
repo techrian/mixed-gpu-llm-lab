@@ -34,6 +34,7 @@ Both intervals reach zero. The sample suggests lower IQ3_S success on this suite
 | Checkpoint | ISTA-DASLab Qwen3.8-Flash-Next GSQ-RCO, IQ3_S |
 | GGUF files | 83.62 GB decimal / 77.88 GiB combined; separate vision encoder excluded |
 | Engine | Niko1221/Strata 0.1.43.1, commit a0116b2 |
+| Reasoning effort | `xhigh`, enabled by the loaded chat template when the request omits an override |
 | Context and KV cache | 262,144 tokens; INT8 KV |
 | GPU placement | Physical CUDA indices 2 and 3: two 32 GiB Tesla V100 cards |
 | Other GPUs | RTX 3090 and RTX 3060 were unused for this evaluation |
@@ -80,7 +81,8 @@ The [machine-readable category CSV](category-comparison.csv) and [task CSV](task
 - 24 tasks across tool contracts, business workflows, files/evidence, recovery/verification, context/instruction, and maintenance; each repeated three times.
 - Same frozen task suite and task ordering seed 20261016. The exact suite SHA-256 is 3be3622f90af51eb067eb387e2746e03d3d2f5780c5759d95de10e77fbde024f; the task manifest and suite source are retained here and in the October 16 benchmark folder.
 - Sampling used each server's defaults: temperature 1.0, top-p 0.95, top-k 20, min-p 0.0. No fixed generation seed was set.
-- Each task had a 12-turn limit, 4,096 maximum output tokens per turn, and a 180-second wall-time budget.
+- Reasoning effort was not sent in the IQ3_S requests. The loaded IQ3_S chat template defaults omitted effort to `xhigh`, matching the Qwen Q4 template. There was no separate reasoning-token cap; reasoning, answer text and tool calls shared the same 4,096-token output limit on each request.
+- Each task had a 12-turn limit and a 180-second wall-time budget.
 - The harness used an OpenAI-native tool loop inspired by Hermes-style agent use. The live Hermes gateway, persistent memory, and skills were not run.
 - Scoring checked final environment state, protected state, and explicit verification deterministically. No LLM judge was used.
 - Business tools and reference pages were deterministic fixtures. File, SQLite, and Python/Node tasks ran in isolated task workspaces.
